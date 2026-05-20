@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sancéa Vet – Gestion</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <link rel="stylesheet" href="assets/css/styles.css" />
+
+  <!-- React + ReactDOM + Babel -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body {
+      background: #070E1C;
+    }
+    .gestion-wrapper {
+      min-height: 100vh;
+      padding-top: 80px;
+      padding-bottom: 40px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+    }
+    .gestion-card {
+      width: 100%;
+      max-width: 1300px;
+    }
+  </style>
+</head>
+<body>
+  <nav id="navbar">
+    <div class="nav-container">
+      <a href="index.html" class="logo" style="padding:0;">
+        <img src="assets/img/logo.png" alt="Sancéa Vet" style="height:52px;width:auto;" />
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html#accueil">Accueil</a></li>
+        <li><a href="index.html#services">Services</a></li>
+        <li><a href="index.html#contact">Contact</a></li>
+        <li><a href="gestion.html">Gestion</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="gestion-wrapper">
+    <div id="gestion-root" class="gestion-card"></div>
+  </div>
+
+  <!-- Optionnel : ton main.js pour la nav mobile / scroll -->
+  <script src="assets/js/main.js"></script>
+
+  <!-- Script JSX contenant TON planning (version adaptée) -->
+  <script type="text/babel">
+    const { useState, useMemo, useCallback } = React;
+
+    // ─────────────────────────────────────────────
+// CONSTANTES & HELPERS
+// ─────────────────────────────────────────────
+const JOURS     = ['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'];
+const JOURS_FULL= ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'];
+const JS_FULL   = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+const MOIS      = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const PALETTE   = ['#60A5FA','#F87171','#34D399','#FBBF24','#A78BFA','#22D3EE','#FB923C','#F472B6','#86EFAC','#FCA5A5'];
+
+const uid        = () => Math.random().toString(36).slice(2, 8);
+const daysInMonth= (y, m) => new Date(y, m + 1, 0).getDate();
+const firstCol   = (y, m) => (new Date(y, m, 1).getDay() + 6) % 7; // Lun=0
+const dowJS      = (y, m, d) => new Date(y, m, d).getDay();        // 0=Dim
+const frCol      = (dow) => (dow + 6) % 7;                         // Lun=0
+const isWE       = (dow) => dow === 0 || dow === 6;
+const dk         = (y, m, d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
+// DESIGN TOKENS
+const C = {
+  bg:          '#070E1C',
+  surface:     '#0D1A2E',
+  card:        '#152033',
+  cardHover:   '#1C2B42',
+  border:      '#1E3050',
+  borderLight: '#263C60',
+  text:        '#DCE8F8',
+  textMuted:   '#5C7A9E',
+  textDim:     '#324F72',
+  primary:     '#3B82F6',
+  primaryDark: '#1D4ED8',
+  success:     '#10B981',
+  warning:     '#F59E0B',
+  danger:      '#EF4444',
+  dangerSoft:  'rgba(239,68,68,0.10)',
+  warnSoft:    'rgba(245,158,11,0.10)',
+  successSoft: 'rgba(16,185,129,0.10)',
+  primarySoft: 'rgba(59,130,246,0.10)',
+};
+
+const S = {
+  btn: (v='primary', x={}) => ({
+    padding:'8px 16px', borderRadius:8, border:'none', cursor:'pointer',
+    fontWeight:600, fontSize:13, transition:'all 0.15s', fontFamily:'inherit',
+    display:'inline-flex', alignItems:'center', gap:6,
+    ...(v==='primary'  ? {background:C.primary,  color:'#fff'} :
+      v==='success'    ? {background:C.success,  color:'#fff'} :
+      v==='ghost'      ? {background:'transparent', color:C.textMuted, border:`1px solid ${C.border}`} :
+      v==='danger'     ? {background:C.dangerSoft, color:C.danger, border:`1px solid ${C.danger}44`} :
+      v==='outline'    ? {background:'transparent', color:C.primary, border:`1px solid ${C.primary}66`} : {}),
+    ...x
+  }),
+  card: (x={}) => ({background:C.card, border:`1px solid ${C.border}`, borderRadius:12, padding:20, ...x}),
+  label: {fontSize:11, color:C.textMuted, marginBottom:4, fontWeight:600, letterSpacing:'0.05em', textTransform:'uppercase'},
+  input: {background:C.surface, border:`1px solid ${C.border}`, color:C.text, borderRadius:8, padding:'8px 12px', fontSize:13, outline:'none', fontFamily:'inherit'},
+};
+
+// ─────────────────────────────────────────────
+// APP AVEC PROTECTION PAR ID
+// ─────────────────────────────────────────────
+const VALID_ID = "Sancea2026"; // change la valeur comme tu veux
+
+function ProtectedApp() {
+  const [ok, setOk] = useState(false);
+  const [id, setId] = useState("");
+  const [error, setError] = useState("");
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (id === VALID_ID) {
+      setError("");
+      setOk(true);
+    } else {
+      setError("Identifiant incorrect");
+    }
+  }
+
+  if (!ok) {
+    return (
+      <div style={{minHeight:'70vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{...S.card({maxWidth:420,width:'100%'})}}>
+          <h1 style={{fontSize:22,marginBottom:8}}>Accès gestion – Sancéa Vet</h1>
+          <p style={{color:C.textMuted,fontSize:13,marginBottom:16}}>
+            Veuillez saisir l’identifiant interne pour accéder au module de planning.
+          </p>
+          {error && <div style={{color:C.danger,marginBottom:8,fontSize:13}}>{error}</div>}
+          <form onSubmit={handleSubmit}>
+            <div style={{marginBottom:12}}>
+              <label htmlFor="gestion-id" style={{...S.label,textTransform:'none',letterSpacing:0}}>Identifiant</label>
+              <input
+                id="gestion-id"
+                type="password"
+                style={{...S.input,width:'100%'}}
+                value={id}
+                onChange={(e)=>setId(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <button type="submit" style={S.btn('primary',{width:'100%',justifyContent:'center'})}>
+              Se connecter
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // une fois l’ID ok → on rend l’app de planning
+  return <App />;
+}
+
+// ─────────────────────────────────────────────
+// APP PRINCIPALE (ton code, sans export)
+// ─────────────────────────────────────────────
+function App() {
+  const now = new Date();
+  const [tab, setTab]   = useState('planning');
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth());
+
+  const [vets, setVets] = useState([
+    { id:'v1', name:'Dr. Martin',  email:'martin@clinique.fr',  color:PALETTE[0] },
+    { id:'v2', name:'Dr. Dubois',  email:'dubois@clinique.fr',  color:PALETTE[1] },
+    { id:'v3', name:'Dr. Bernard', email:'bernard@clinique.fr', color:PALETTE[2] },
+    { id:'v4', name:'Dr. Petit',   email:'petit@clinique.fr',   color:PALETTE[3] },
+  ]);
+
+  const [rules, setRules] = useState([
+    { id:'r1', type:'min_per_day', dayType:'weekday', min:2 },
+    { id:'r2', type:'min_per_day', dayType:'weekend', min:1 },
+  ]);
+
+  const [openDays, setOpenDays] = useState([false,true,true,true,true,true,true]);
+  const [unavail, setUnavail] = useState({});
+  const [planning, setPlanning]   = useState({});
+  const [validated, setValidated] = useState(false);
+  const [editDay, setEditDay]     = useState(null);
+
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [calendarId, setCalendarId]         = useState('primary');
+
+  const numDays  = useMemo(() => daysInMonth(year, month), [year, month]);
+  const startCol = useMemo(() => firstCol(year, month),    [year, month]);
+
+  const getAlerts = useCallback((datekey, ids) => {
+    if (!ids?.length) return [];
+    const parts = datekey.split('-');
+    const dowReal = new Date(+parts[0], +parts[1]-1, +parts[2]).getDay();
+    if (!openDays[dowReal]) return [];
+    const alerts = [], weekend = isWE(dowReal);
+    const minR = rules.find(r => r.type==='min_per_day' && (
+      r.dayType==='all' || (!weekend && r.dayType==='weekday') || (weekend && r.dayType==='weekend')
+    ));
+    if (minR && ids.length < minR.min)
+      alerts.push({ level:'error', msg:`Min. ${minR.min} véto(s) requis — seulement ${ids.length} assigné(s)` });
+    rules.filter(r => r.type==='never_day' && r.dayOfWeek===dowReal).forEach(r => {
+      if (ids.includes(r.vetId)) {
+        const v = vets.find(x=>x.id===r.vetId);
+        alerts.push({ level:'error', msg:`${v?.name} ne travaille jamais le ${JS_FULL[dowReal]}` });
+      }
+    });
+    (unavail[datekey]||[]).forEach(vid => {
+      if (ids.includes(vid)) {
+        const v = vets.find(x=>x.id===vid);
+        alerts.push({ level:'warn', msg:`${v?.name} est indisponible ce jour` });
+      }
+    });
+    return alerts;
+  }, [rules, vets, unavail, openDays]);
+
+  const allAlerts   = useMemo(() => {
+    const res={};
+    Object.entries(planning).forEach(([k,ids])=>{ const a=getAlerts(k,ids); if(a.length) res[k]=a; });
+    return res;
+  }, [planning, getAlerts]);
+  const totalAlerts = useMemo(() => Object.values(allAlerts).reduce((s,a)=>s+a.length,0), [allAlerts]);
+
+  const generate = useCallback(() => {
+    const newP={}, workload=Object.fromEntries(vets.map(v=>[v.id,0]));
+    for (let d=1; d<=numDays; d++) {
+      const key=dk(year,month,d), dow=dowJS(year,month,d);
+      if (!openDays[dow]) { newP[key]=[]; continue; }
+      const dayU  = new Set(unavail[key]||[]);
+      const excl  = new Set(rules.filter(r=>r.type==='never_day'&&r.dayOfWeek===dow).map(r=>r.vetId));
+      const elig  = vets.filter(v=>!dayU.has(v.id)&&!excl.has(v.id));
+      elig.sort((a,b)=>workload[a.id]-workload[b.id]);
+      const weekend=isWE(dow);
+      const minR  = rules.find(r=>r.type==='min_per_day'&&(r.dayType==='all'||(!weekend&&r.dayType==='weekday')||(weekend&&r.dayType==='weekend')));
+      const need  = minR?.min ?? 1;
+      const asgn  = elig.slice(0, need);
+      asgn.forEach(v=>workload[v.id]++);
+      newP[key]=asgn.map(v=>v.id);
+    }
+    setPlanning(newP); setValidated(false);
+  }, [vets, rules, unavail, openDays, numDays, year, month]);
+
+  const toggleVet = useCallback((datekey, vetId) => {
+    setPlanning(prev => {
+      const cur=prev[datekey]||[];
+      return { ...prev, [datekey]: cur.includes(vetId)?cur.filter(x=>x!==vetId):[...cur,vetId] };
+    });
+    setValidated(false);
+  }, []);
+
+  const changeMonth = useCallback((delta) => {
+    let ny=year, nm=month+delta;
+    if (nm<0)  { ny--; nm=11; }
+    if (nm>11) { ny++; nm=0;  }
+    setYear(ny); setMonth(nm);
+    setPlanning({}); setUnavail({}); setValidated(false);
+  }, [year, month]);
+
+  const exportICS = useCallback(() => {
+    const lines=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//PlanningVeto//FR','CALSCALE:GREGORIAN'];
+    Object.entries(planning).forEach(([k,ids])=>{
+      if (!ids?.length) return;
+      const names=ids.map(id=>vets.find(v=>v.id===id)?.name).filter(Boolean).join(', ');
+      const ds=k.replace(/-/g,'');
+      lines.push('BEGIN:VEVENT',`UID:${k}@vetoplanning`,`DTSTART;VALUE=DATE:${ds}`,`DTEND;VALUE=DATE:${ds}`,`SUMMARY:Garde: ${names}`,'END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    const blob=new Blob([lines.join('\r\n')],{type:'text/calendar'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`planning-${MOIS[month]}-${year}.ics`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [planning, vets, month, year]);
+
+  const TABS=[
+    {id:'planning',label:'Planning',icon:'📅'},
+    {id:'equipe',  label:'Équipe',  icon:'👥'},
+    {id:'regles',  label:'Règles',  icon:'⚙️'},
+    {id:'sync',    label:'Google Sync', icon:'🔗'},
+  ];
+
+  return (
+    <div style={{minHeight:'100vh',background:C.bg,color:C.text,fontFamily:"'DM Sans',system-ui,sans-serif"}}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Sora:wght@600;700&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}
+        ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:${C.bg}}::-webkit-scrollbar-thumb{background:${C.border};border-radius:3px}
+        button:hover{filter:brightness(1.15)}
+        input,select{color-scheme:dark}
+      `}</style>
+
+      <header style={{background:C.surface,borderBottom:`1px solid ${C.border}`,padding:'0 24px',display:'flex',alignItems:'center',gap:0,height:54}}>
+        <div style={{fontFamily:'Sora',fontWeight:700,fontSize:15,marginRight:32,whiteSpace:'nowrap',color:C.text}}>
+          🐾 Planning Véto
+        </div>
+        <nav style={{display:'flex',gap:4}}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              background:tab===t.id?C.primarySoft:'transparent',
+              color:tab===t.id?C.primary:C.textMuted,
+              border:tab===t.id?`1px solid ${C.primary}44`:'1px solid transparent',
+              borderRadius:8,padding:'6px 14px',cursor:'pointer',
+              fontWeight:tab===t.id?600:500,fontSize:13,
+              display:'inline-flex',alignItems:'center',gap:6,
+              transition:'all 0.15s',fontFamily:'inherit'
+            }}>
+              {t.icon} {t.label}
+              {t.id==='planning'&&totalAlerts>0&&(
+                <span style={{background:C.danger,color:'#fff',borderRadius:10,padding:'1px 7px',fontSize:10,fontWeight:700}}>
+                  {totalAlerts}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <main style={{padding:'24px',maxWidth:1300,margin:'0 auto'}}>
+        {tab==='planning'&&(
+          <PlanningTab year={year} month={month} numDays={numDays} startCol={startCol}
+            vets={vets} planning={planning} unavail={unavail}
+            allAlerts={allAlerts} totalAlerts={totalAlerts}
+            openDays={openDays} validated={validated}
+            onChangeMonth={changeMonth} onGenerate={generate}
+            onValidate={()=>setValidated(true)}
+            toggleVet={toggleVet} setUnavail={setUnavail}
+            setEditDay={setEditDay} />
+        )}
+        {tab==='equipe'&&<EquipeTab vets={vets} setVets={setVets}/>}
+        {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays}/>}
+        {tab==='sync'&&(
+          <SyncTab validated={validated} totalAlerts={totalAlerts} planning={planning}
+            vets={vets} year={year} month={month}
+            googleClientId={googleClientId} setGoogleClientId={setGoogleClientId}
+            calendarId={calendarId} setCalendarId={setCalendarId}
+            onExportICS={exportICS}/>
+        )}
+      </main>
+
+      {editDay&&(
+        <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
+          allAlerts={allAlerts} openDays={openDays}
+          toggleVet={toggleVet} onClose={()=>setEditDay(null)}/>
+      )}
+    </div>
+  );
+}
+// ══════════════════════════════════════════════════════════════
+// ONGLET PLANNING
+// ══════════════════════════════════════════════════════════════
+function PlanningTab({ year, month, numDays, startCol, vets, planning, unavail, allAlerts, totalAlerts, openDays, validated, onChangeMonth, onGenerate, onValidate, toggleVet, setUnavail, setEditDay }) {
+  const [showUnavail, setShowUnavail] = useState(false);
+  const [addVet, setAddVet]   = useState('');
+  const [addDay, setAddDay]   = useState('');
+  const [addReason, setAddReason] = useState('');
+
+  const totalUnavail = Object.values(unavail).reduce((s,a)=>s+a.length,0);
+  const hasPlanning  = Object.keys(planning).length>0;
+
+  const doAddUnavail = () => {
+    if (!addVet||!addDay) return;
+    const d=parseInt(addDay); if (d<1||d>numDays) return;
+    const key=dk(year,month,d);
+    setUnavail(prev=>({ ...prev, [key]:[...(prev[key]||[]).filter(x=>x!==addVet), addVet] }));
+    setAddDay(''); setAddReason('');
+  };
+  const doRemoveUnavail = (key, vid) => setUnavail(prev=>({ ...prev, [key]:(prev[key]||[]).filter(x=>x!==vid) }));
+
+  // Construire grille 6×7
+  const cells=[]; for(let i=0;i<startCol;i++) cells.push(null);
+  for(let d=1;d<=numDays;d++) cells.push(d);
+  while(cells.length%7!==0) cells.push(null);
+  const weeks=[]; for(let i=0;i<cells.length;i+=7) weeks.push(cells.slice(i,i+7));
+
+  return (
+    <div>
+      {/* ── En-tête planning ── */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <button onClick={()=>onChangeMonth(-1)} style={S.btn('ghost',{padding:'6px 10px'})}>←</button>
+          <h2 style={{fontFamily:'Sora',fontSize:22,fontWeight:700}}>{MOIS[month]} {year}</h2>
+          <button onClick={()=>onChangeMonth(1)} style={S.btn('ghost',{padding:'6px 10px'})}>→</button>
+        </div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          {hasPlanning&&totalAlerts===0&&validated&&<span style={{color:C.success,fontSize:13,fontWeight:600}}>✓ Validé</span>}
+          {totalAlerts>0&&<span style={{color:C.warning,fontSize:13,fontWeight:600}}>⚠ {totalAlerts} alerte(s)</span>}
+          <button onClick={()=>setShowUnavail(v=>!v)} style={S.btn('ghost')}>
+            📋 Indispos {totalUnavail>0&&<span style={{color:C.warning,fontWeight:700}}>({totalUnavail})</span>}
+          </button>
+          <button onClick={onGenerate} style={S.btn('primary')}>⚡ Générer</button>
+          {hasPlanning&&(
+            <button onClick={onValidate} disabled={validated}
+              style={S.btn('success',{opacity:validated?.5:1})}>
+              {validated?'✓ Validé':'✓ Valider'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Panneau indisponibilités ── */}
+      {showUnavail&&(
+        <div style={{...S.card(),marginBottom:20}}>
+          <h3 style={{fontSize:14,fontWeight:600,marginBottom:12}}>Indisponibilités — {MOIS[month]} {year}</h3>
+          <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+            <select value={addVet} onChange={e=>setAddVet(e.target.value)} style={{...S.input,flex:2,minWidth:160}}>
+              <option value=''>Sélectionner un véto…</option>
+              {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+            </select>
+            <input type="number" placeholder="Jour" min={1} max={numDays} value={addDay}
+              onChange={e=>setAddDay(e.target.value)} style={{...S.input,width:80}}/>
+            <input placeholder="Motif (optionnel)" value={addReason} onChange={e=>setAddReason(e.target.value)}
+              style={{...S.input,flex:3,minWidth:140}}/>
+            <button onClick={doAddUnavail} style={S.btn('primary')}>Ajouter</button>
+          </div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+            {Object.entries(unavail).flatMap(([key,ids])=>ids.map(vid=>{
+              const v=vets.find(x=>x.id===vid);
+              const d=parseInt(key.split('-')[2]);
+              return(
+                <span key={`${key}-${vid}`} style={{background:v?.color+'20',border:`1px solid ${v?.color}44`,
+                  color:v?.color,borderRadius:20,padding:'4px 12px',fontSize:12,fontWeight:500,
+                  display:'inline-flex',alignItems:'center',gap:6}}>
+                  {v?.name} – {d} {MOIS[month].slice(0,3)}
+                  <button onClick={()=>doRemoveUnavail(key,vid)} style={{background:'none',border:'none',cursor:'pointer',color:'inherit',fontSize:15,lineHeight:1,padding:0}}>×</button>
+                </span>
+              );
+            }))}
+            {totalUnavail===0&&<span style={{color:C.textMuted,fontSize:13}}>Aucune indisponibilité saisie</span>}
+          </div>
+        </div>
+      )}
+
+      {/* ── Grille calendrier ── */}
+      <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:12,overflow:'hidden'}}>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',background:C.card,borderBottom:`1px solid ${C.border}`}}>
+          {JOURS.map(j=>(
+            <div key={j} style={{padding:'10px 0',textAlign:'center',fontSize:10,fontWeight:700,
+              color:j==='Sam'||j==='Dim'?C.primary+'99':C.textMuted,letterSpacing:'0.1em',textTransform:'uppercase'}}>
+              {j}
+            </div>
+          ))}
+        </div>
+
+        {weeks.map((week,wi)=>(
+          <div key={wi} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr)',
+            borderBottom:wi<weeks.length-1?`1px solid ${C.border}`:'none'}}>
+            {week.map((day,di)=>{
+              if (!day) return <div key={di} style={{background:C.bg+'88',minHeight:105,borderLeft:di>0?`1px solid ${C.border}`:'none'}}/>;
+              const key=dk(year,month,day);
+              const dow=dowJS(year,month,day);
+              const closed=!openDays[dow];
+              const asgn=planning[key]||[];
+              const dayU=unavail[key]||[];
+              const alerts=allAlerts[key]||[];
+              const today=new Date().toDateString()===new Date(year,month,day).toDateString();
+              const weekend=isWE(dow);
+
+              return(
+                <div key={di}
+                  onClick={()=>!closed&&setEditDay(key)}
+                  style={{
+                    minHeight:105, padding:'8px 6px',
+                    background:closed?C.bg+'88':(weekend?C.surface+'BB':C.surface),
+                    cursor:closed?'default':'pointer',
+                    borderLeft:di>0?`1px solid ${C.border}`:'none',
+                    transition:'background 0.1s', position:'relative',
+                  }}
+                  onMouseEnter={e=>{if(!closed)e.currentTarget.style.background=C.cardHover}}
+                  onMouseLeave={e=>{if(!closed)e.currentTarget.style.background=weekend?C.surface+'BB':C.surface}}
+                >
+                  {/* Numéro du jour */}
+                  <div style={{width:24,height:24,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',
+                    background:today?C.primary:'transparent',
+                    color:today?'#fff':(closed?C.textDim:(weekend?C.textMuted:C.text)),
+                    fontSize:12,fontWeight:today?700:500,marginBottom:4}}>
+                    {day}
+                  </div>
+
+                  {closed?(
+                    <div style={{fontSize:9,color:C.textDim,letterSpacing:'0.05em',textTransform:'uppercase'}}>Fermé</div>
+                  ):(
+                    <>
+                      <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                        {asgn.map(vid=>{
+                          const v=vets.find(x=>x.id===vid);
+                          const inUnavail=dayU.includes(vid);
+                          return v?(
+                            <div key={vid} style={{
+                              display:'flex',alignItems:'center',gap:4,
+                              background:v.color+'18',
+                              border:`1px solid ${inUnavail?C.danger:v.color+'40'}`,
+                              borderRadius:4,padding:'2px 6px',fontSize:10,fontWeight:500,color:v.color
+                            }}>
+                              <div style={{width:5,height:5,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                              {v.name.replace('Dr.','')}
+                              {inUnavail&&<span style={{color:C.danger,fontWeight:700}}>!</span>}
+                            </div>
+                          ):null;
+                        })}
+                        {asgn.length===0&&hasPlanning&&(
+                          <div style={{color:C.danger,fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.05em'}}>Non couvert</div>
+                        )}
+                      </div>
+                      {alerts.length>0&&(
+                        <div style={{position:'absolute',top:6,right:6,background:C.danger,color:'#fff',
+                          borderRadius:'50%',width:15,height:15,display:'flex',alignItems:'center',
+                          justifyContent:'center',fontSize:8,fontWeight:700}}>
+                          {alerts.length}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* ── Légende ── */}
+      <div style={{marginTop:12,display:'flex',gap:16,flexWrap:'wrap',alignItems:'center'}}>
+        {vets.map(v=>(
+          <div key={v.id} style={{display:'flex',alignItems:'center',gap:6,fontSize:12,color:C.textMuted}}>
+            <div style={{width:9,height:9,borderRadius:'50%',background:v.color}}/>
+            {v.name}
+          </div>
+        ))}
+        <div style={{display:'flex',alignItems:'center',gap:6,fontSize:11,color:C.textDim,marginLeft:'auto'}}>
+          Cliquer sur un jour pour éditer
+        </div>
+      </div>
+
+      {/* ── Panneau alertes ── */}
+      {totalAlerts>0&&(
+        <div style={{marginTop:16,background:C.dangerSoft,border:`1px solid ${C.danger}33`,borderRadius:12,padding:16}}>
+          <h3 style={{fontSize:13,fontWeight:600,color:C.danger,marginBottom:10}}>⚠ {totalAlerts} problème(s) à résoudre</h3>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(340px,1fr))',gap:'6px 20px'}}>
+            {Object.entries(allAlerts).flatMap(([key,alerts])=>
+              alerts.map((a,i)=>{
+                const d=parseInt(key.split('-')[2]);
+                const dow=new Date(key+'T00:00:00').getDay();
+                return(
+                  <div key={`${key}-${i}`} style={{display:'flex',gap:8,fontSize:12,alignItems:'flex-start'}}>
+                    <span style={{color:C.textMuted,minWidth:70,flexShrink:0}}>{JS_FULL[dow].slice(0,3)} {d} {MOIS[month].slice(0,3)}</span>
+                    <span style={{color:a.level==='error'?C.danger:C.warning}}>{a.msg}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// MODAL ÉDITION JOURNÉE
+// ══════════════════════════════════════════════════════════════
+function EditModal({ datekey, vets, planning, unavail, allAlerts, openDays, toggleVet, onClose }) {
+  const parts=datekey.split('-');
+  const day=parseInt(parts[2]), m=parseInt(parts[1])-1;
+  const dow=new Date(+parts[0],m,day).getDay();
+  const asgn=planning[datekey]||[];
+  const dayU=unavail[datekey]||[];
+  const alerts=allAlerts[datekey]||[];
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.75)',display:'flex',
+      alignItems:'center',justifyContent:'center',zIndex:1000,padding:20}}
+      onClick={onClose}>
+      <div style={{background:C.card,border:`1px solid ${C.borderLight}`,borderRadius:16,
+        padding:24,width:360,maxHeight:'85vh',overflowY:'auto'}}
+        onClick={e=>e.stopPropagation()}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
+          <h3 style={{fontFamily:'Sora',fontSize:16,fontWeight:700}}>
+            {JS_FULL[dow]} {day} {MOIS[m]}
+          </h3>
+          <button onClick={onClose} style={{background:'none',border:'none',color:C.textMuted,
+            cursor:'pointer',fontSize:22,lineHeight:1,padding:0}}>×</button>
+        </div>
+
+        {alerts.length>0&&(
+          <div style={{background:C.dangerSoft,border:`1px solid ${C.danger}33`,borderRadius:8,padding:10,marginBottom:16}}>
+            {alerts.map((a,i)=>(
+              <div key={i} style={{fontSize:12,color:a.level==='error'?C.danger:C.warning,
+                marginBottom:i<alerts.length-1?5:0,display:'flex',gap:6}}>
+                <span>{a.level==='error'?'✕':'⚠'}</span>
+                <span>{a.msg}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p style={{fontSize:11,color:C.textMuted,marginBottom:10,letterSpacing:'0.03em',textTransform:'uppercase',fontWeight:600}}>Assigner / désassigner :</p>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {vets.map(v=>{
+            const on=asgn.includes(v.id), inUnavail=dayU.includes(v.id);
+            return(
+              <button key={v.id} onClick={()=>toggleVet(datekey,v.id)} style={{
+                display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:10,
+                background:on?v.color+'20':C.surface,
+                border:`2px solid ${on?v.color:C.border}`,
+                cursor:'pointer',transition:'all 0.15s',textAlign:'left',
+                color:C.text,fontFamily:'inherit'
+              }}>
+                <div style={{width:11,height:11,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                <span style={{flex:1,fontWeight:on?600:400,fontSize:13}}>{v.name}</span>
+                {inUnavail&&<span style={{fontSize:10,color:C.warning,fontWeight:700,
+                  background:C.warnSoft,padding:'2px 6px',borderRadius:4}}>INDISPO</span>}
+                {on&&<span style={{color:v.color,fontSize:18,lineHeight:1}}>✓</span>}
+              </button>
+            );
+          })}
+        </div>
+        <p style={{fontSize:11,color:C.textDim,marginTop:14,textAlign:'center'}}>Les modifications sont sauvegardées automatiquement</p>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ONGLET ÉQUIPE
+// ══════════════════════════════════════════════════════════════
+function EquipeTab({ vets, setVets }) {
+  const [name, setName]   = useState('');
+  const [email, setEmail] = useState('');
+
+  const add = () => {
+    if (!name.trim()) return;
+    setVets(prev=>[...prev,{id:uid(),name:name.trim(),email:email.trim(),color:PALETTE[prev.length%PALETTE.length]}]);
+    setName(''); setEmail('');
+  };
+  const remove   = (id) => setVets(prev=>prev.filter(v=>v.id!==id));
+  const setColor = (id,c) => setVets(prev=>prev.map(v=>v.id===id?{...v,color:c}:v));
+  const updateField = (id,field,val) => setVets(prev=>prev.map(v=>v.id===id?{...v,[field]:val}:v));
+
+  return(
+    <div style={{maxWidth:680}}>
+      <h2 style={{fontFamily:'Sora',fontSize:20,fontWeight:700,marginBottom:4}}>Équipe vétérinaire</h2>
+      <p style={{color:C.textMuted,fontSize:13,marginBottom:20}}>L'email Google Workspace est utilisé pour envoyer les invitations de planning.</p>
+
+      <div style={{...S.card(),marginBottom:20}}>
+        <h3 style={{fontSize:13,fontWeight:600,marginBottom:12,color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.06em'}}>Ajouter un vétérinaire</h3>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <input value={name} onChange={e=>setName(e.target.value)} placeholder="Nom (ex: Dr. Moreau)"
+            style={{...S.input,flex:'2 1 180px'}} onKeyDown={e=>e.key==='Enter'&&add()}/>
+          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="prenom.nom@cabinet.fr" type="email"
+            style={{...S.input,flex:'3 1 220px'}} onKeyDown={e=>e.key==='Enter'&&add()}/>
+          <button onClick={add} style={S.btn('primary')}>Ajouter</button>
+        </div>
+      </div>
+
+      <div style={{display:'flex',flexDirection:'column',gap:8}}>
+        {vets.map(v=>(
+          <div key={v.id} style={{...S.card({padding:'14px 16px'}),display:'flex',alignItems:'center',gap:12}}>
+            <div style={{width:14,height:14,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+            <div style={{flex:1,display:'flex',gap:8,flexWrap:'wrap'}}>
+              <input value={v.name} onChange={e=>updateField(v.id,'name',e.target.value)}
+                style={{...S.input,fontWeight:600,flex:'1 1 140px'}}/>
+              <input value={v.email} onChange={e=>updateField(v.id,'email',e.target.value)}
+                placeholder="email@cabinet.fr" type="email"
+                style={{...S.input,flex:'2 1 200px',color:C.textMuted}}/>
+            </div>
+            <div style={{display:'flex',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
+              {PALETTE.map(c=>(
+                <div key={c} onClick={()=>setColor(v.id,c)} style={{
+                  width:14,height:14,borderRadius:'50%',background:c,cursor:'pointer',
+                  border:v.color===c?`2px solid #fff`:'2px solid transparent',
+                  transform:v.color===c?'scale(1.25)':'none',transition:'all 0.1s'
+                }}/>
+              ))}
+            </div>
+            <button onClick={()=>remove(v.id)} style={S.btn('danger',{padding:'6px 10px'})}>✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ONGLET RÈGLES
+// ══════════════════════════════════════════════════════════════
+function ReglesTab({ rules, setRules, vets, openDays, setOpenDays }) {
+  const [ruleType,  setRuleType]  = useState('min_per_day');
+  const [dayType,   setDayType]   = useState('weekday');
+  const [minCount,  setMinCount]  = useState(2);
+  const [vetId,     setVetId]     = useState('');
+  const [dayOfWeek, setDayOfWeek] = useState(1);
+
+  const JOURS_ABR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
+
+  const addRule = () => {
+    if (ruleType==='min_per_day') {
+      if (rules.some(r=>r.type==='min_per_day'&&r.dayType===dayType)) {
+        setRules(prev=>prev.map(r=>r.type==='min_per_day'&&r.dayType===dayType?{...r,min:minCount}:r));
+      } else {
+        setRules(prev=>[...prev,{id:uid(),type:'min_per_day',dayType,min:minCount}]);
+      }
+    } else if (ruleType==='never_day'&&vetId) {
+      if (!rules.some(r=>r.type==='never_day'&&r.vetId===vetId&&r.dayOfWeek===+dayOfWeek))
+        setRules(prev=>[...prev,{id:uid(),type:'never_day',vetId,dayOfWeek:+dayOfWeek}]);
+    }
+  };
+
+  const labelOf = r => {
+    if (r.type==='min_per_day') return `📊 Min. ${r.min} véto(s) — ${r.dayType==='weekday'?'jours de semaine':r.dayType==='weekend'?'week-end':'tous les jours'}`;
+    if (r.type==='never_day') {
+      const v=vets.find(x=>x.id===r.vetId);
+      return `🚫 ${v?.name} — jamais le ${JS_FULL[r.dayOfWeek]}`;
+    }
+    return '';
+  };
+
+  return(
+    <div style={{maxWidth:680}}>
+      <h2 style={{fontFamily:'Sora',fontSize:20,fontWeight:700,marginBottom:4}}>Règles & Contraintes</h2>
+      <p style={{color:C.textMuted,fontSize:13,marginBottom:20}}>Règles fixes appliquées toute l'année lors de la génération automatique.</p>
+
+      {/* Jours d'ouverture */}
+      <div style={{...S.card(),marginBottom:20}}>
+        <h3 style={{fontSize:13,fontWeight:600,marginBottom:12,color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.06em'}}>Jours d'ouverture du cabinet</h3>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          {JOURS_ABR.map((j,i)=>(
+            <button key={i} onClick={()=>setOpenDays(prev=>{const n=[...prev];n[i]=!n[i];return n;})} style={{
+              padding:'8px 14px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:'inherit',
+              border:`1px solid ${openDays[i]?C.primary:C.border}`,
+              background:openDays[i]?C.primarySoft:'transparent',
+              color:openDays[i]?C.primary:C.textMuted,transition:'all 0.15s'
+            }}>{j}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* Règles actives */}
+      <div style={{...S.card(),marginBottom:20}}>
+        <h3 style={{fontSize:13,fontWeight:600,marginBottom:12,color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.06em'}}>Règles actives</h3>
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {rules.map(r=>(
+            <div key={r.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
+              background:C.surface,borderRadius:8,border:`1px solid ${C.border}`}}>
+              <span style={{flex:1,fontSize:13}}>{labelOf(r)}</span>
+              <button onClick={()=>setRules(prev=>prev.filter(x=>x.id!==r.id))}
+                style={S.btn('danger',{padding:'4px 10px',fontSize:12})}>Suppr.</button>
+            </div>
+          ))}
+          {rules.length===0&&<div style={{color:C.textMuted,fontSize:13}}>Aucune règle définie</div>}
+        </div>
+      </div>
+
+      {/* Ajouter règle */}
+      <div style={S.card()}>
+        <h3 style={{fontSize:13,fontWeight:600,marginBottom:16,color:C.textMuted,textTransform:'uppercase',letterSpacing:'0.06em'}}>Ajouter une règle</h3>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+          <div>
+            <div style={S.label}>Type</div>
+            <select value={ruleType} onChange={e=>setRuleType(e.target.value)} style={S.input}>
+              <option value="min_per_day">Couverture minimale</option>
+              <option value="never_day">Exclusion jour fixe</option>
+            </select>
+          </div>
+          {ruleType==='min_per_day'&&<>
+            <div>
+              <div style={S.label}>Jours</div>
+              <select value={dayType} onChange={e=>setDayType(e.target.value)} style={S.input}>
+                <option value="weekday">Semaine</option>
+                <option value="weekend">Week-end</option>
+                <option value="all">Tous</option>
+              </select>
+            </div>
+            <div>
+              <div style={S.label}>Minimum</div>
+              <input type="number" min={1} max={10} value={minCount} onChange={e=>setMinCount(+e.target.value||1)}
+                style={{...S.input,width:70}}/>
+            </div>
+          </>}
+          {ruleType==='never_day'&&<>
+            <div>
+              <div style={S.label}>Vétérinaire</div>
+              <select value={vetId} onChange={e=>setVetId(e.target.value)} style={S.input}>
+                <option value="">Choisir…</option>
+                {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={S.label}>Jour exclu</div>
+              <select value={dayOfWeek} onChange={e=>setDayOfWeek(e.target.value)} style={S.input}>
+                {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+              </select>
+            </div>
+          </>}
+          <button onClick={addRule} style={S.btn('primary',{marginTop:20})}>Ajouter</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// ONGLET SYNCHRONISATION GOOGLE
+// ══════════════════════════════════════════════════════════════
+function SyncTab({ validated, totalAlerts, planning, vets, year, month, googleClientId, setGoogleClientId, calendarId, setCalendarId, onExportICS }) {
+  const [copied, setCopied] = useState(false);
+  const hasPlanning = Object.keys(planning).filter(k=>(planning[k]||[]).length>0).length > 0;
+  const planDays    = Object.keys(planning).filter(k=>(planning[k]||[]).length>0).length;
+
+  const integrationCode = 
+<script src="https://accounts.google.com/gsi/client"></script>
+<script src="https://apis.google.com/js/api.js"></script>
+
+// 2. Configuration
+const GC_CONFIG = {
+  clientId:   "${googleClientId||'VOTRE_CLIENT_ID.apps.googleusercontent.com'}",
+  calendarId: "${calendarId||'primary'}",
+  scope:      "https://www.googleapis.com/auth/calendar.events",
+};
+
+// 3. Authentification OAuth
+function connectGoogle() {
+  const client = google.accounts.oauth2.initTokenClient({
+    client_id: GC_CONFIG.clientId,
+    scope:     GC_CONFIG.scope,
+    callback:  (tokenResponse) => {
+      gapi.client.setToken(tokenResponse);
+      syncPlanning(planningData); // votre objet planning
+    },
+  });
+  client.requestAccessToken();
+}
+
+// 4. Création des événements
+async function syncPlanning(planning) {
+  await gapi.client.load('calendar','v3');
+  for (const [date, vetIds] of Object.entries(planning)) {
+    if (!vetIds.length) continue;
+    const names   = vetIds.map(id => vetsById[id]?.name).join(', ');
+    const emails  = vetIds.map(id => vetsById[id]?.email).filter(Boolean);
+    await gapi.client.calendar.events.insert({
+      calendarId: GC_CONFIG.calendarId,
+      resource: {
+        summary:    \`Garde : \${names}\`,
+        start:      { date },
+        end:        { date },
+        attendees:  emails.map(email => ({ email })),
+        reminders:  { useDefault: false },
+      },
+    });
+  }
+}`;
+
+  const copy = () => {
+    navigator.clipboard.writeText(integrationCode).then(()=>{ setCopied(true); setTimeout(()=>setCopied(false),2000); });
+  };
+
+  return(
+    <div style={{maxWidth:720}}>
+      <h2 style={{fontFamily:'Sora',fontSize:20,fontWeight:700,marginBottom:4}}>Synchronisation Google Calendar</h2>
+      <p style={{color:C.textMuted,fontSize:13,marginBottom:20}}>Publiez le planning validé dans les agendas Google Workspace de l'équipe.</p>
+
+      {/* Statut */}
+      <div style={{
+        background:validated&&totalAlerts===0?C.successSoft:C.warnSoft,
+        border:`1px solid ${validated&&totalAlerts===0?C.success:C.warning}44`,
+        borderRadius:10,padding:14,marginBottom:20,fontSize:13
+      }}>
+        {!hasPlanning&&<span style={{color:C.warning}}>⚠ Aucun planning généré. Allez dans l'onglet Planning → Générer.</span>}
+        {hasPlanning&&!validated&&<span style={{color:C.warning}}>⚠ Planning non validé. Cliquez sur "Valider" dans l'onglet Planning.</span>}
+        {hasPlanning&&validated&&totalAlerts>0&&<span style={{color:C.warning}}>⚠ Planning validé avec {totalAlerts} alerte(s) non résolue(s).</span>}
+        {hasPlanning&&validated&&totalAlerts===0&&<span style={{color:C.success}}>✓ Planning validé — {planDays} jours planifiés, prêt à synchroniser.</span>}
+      </div>
+
+      {/* Export ICS */}
+      <div style={{...S.card(),marginBottom:20}}>
+        <h3 style={{fontSize:14,fontWeight:600,marginBottom:6}}>📥 Export .ics — disponible immédiatement</h3>
+        <p style={{fontSize:12,color:C.textMuted,marginBottom:12}}>
+          Format universel compatible Google Calendar, Outlook, Apple Calendar.<br/>
+          Chaque véto peut importer le fichier depuis son propre agenda.
+        </p>
+        <button onClick={onExportICS} disabled={!hasPlanning}
+          style={S.btn('primary',{opacity:hasPlanning?1:0.45})}>
+          ↓ Télécharger planning-{MOIS[month]}-{year}.ics
+        </button>
+      </div>
+
+      {/* Google Calendar API directe */}
+      <div style={{...S.card(),marginBottom:20}}>
+        <h3 style={{fontSize:14,fontWeight:600,marginBottom:12}}>🔗 Intégration directe Google Calendar API</h3>
+
+        <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+          {[
+            ['1','Allez sur','console.cloud.google.com','→ créez un projet'],
+            ['2','Activez','l\'API Google Calendar','dans APIs & Services → Bibliothèque'],
+            ['3','Créez des','identifiants OAuth 2.0','(type : Application Web)'],
+            ['4','Ajoutez','l\'URL de votre site','dans "Origines JavaScript autorisées"'],
+            ['5','Collez le Client ID','ci-dessous','et copiez le code d\'intégration'],
+          ].map(([n,a,b,c])=>(
+            <div key={n} style={{display:'flex',gap:10,alignItems:'flex-start',fontSize:12}}>
+              <span style={{background:C.primary,color:'#fff',width:20,height:20,borderRadius:'50%',
+                display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,
+                fontWeight:700,flexShrink:0,marginTop:1}}>{n}</span>
+              <span style={{color:C.text}}>{a} <strong style={{color:C.primary}}>{b}</strong> {c}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{display:'flex',gap:8,marginBottom:10,flexWrap:'wrap'}}>
+          <div style={{flex:'2 1 280px'}}>
+            <div style={S.label}>Google OAuth Client ID</div>
+            <input value={googleClientId} onChange={e=>setGoogleClientId(e.target.value)}
+              placeholder="xxxxxxxxxxxx.apps.googleusercontent.com"
+              style={{...S.input,width:'100%'}}/>
+          </div>
+          <div style={{flex:'1 1 160px'}}>
+            <div style={S.label}>ID Agenda cible</div>
+            <input value={calendarId} onChange={e=>setCalendarId(e.target.value)}
+              placeholder="primary"
+              style={{...S.input,width:'100%'}}/>
+          </div>
+        </div>
+        <p style={{fontSize:11,color:C.textDim,marginBottom:16}}>
+          Utilisez <code style={{color:C.primary}}>primary</code> pour l'agenda principal de votre compte, ou l'ID d'un agenda partagé "Planning Cabinet".
+        </p>
+
+        {/* Code snippet */}
+        <div style={{background:C.bg,borderRadius:8,padding:'12px 14px',marginBottom:12,position:'relative'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+            <span style={{fontSize:11,color:C.textMuted,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.06em'}}>Code d'intégration</span>
+            <button onClick={copy} style={S.btn('ghost',{padding:'4px 10px',fontSize:11})}>
+              {copied?'✓ Copié !':'Copier'}
+            </button>
+          </div>
+          <pre style={{overflowX:'auto',color:C.textMuted,fontSize:11,lineHeight:1.6,
+            fontFamily:"'Fira Code',monospace",margin:0,whiteSpace:'pre-wrap',wordBreak:'break-word'}}>
+            {integrationCode}
+          </pre>
+        </div>
+
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <button
+            disabled={!googleClientId||!validated}
+            style={S.btn('primary',{opacity:(googleClientId&&validated)?1:0.4})}
+            onClick={()=>alert('Pour la sync live, déployez cette webapp sur votre site avec le Client ID configuré dans Google Cloud Console.')}>
+            🔗 {googleClientId?'Connecter & Synchroniser':'Renseigner le Client ID d\'abord'}
+          </button>
+          {!googleClientId&&<span style={{fontSize:12,color:C.textMuted}}>← Renseignez le Client ID pour activer</span>}
+          {googleClientId&&!validated&&<span style={{fontSize:12,color:C.textMuted}}>← Validez le planning pour synchroniser</span>}
+        </div>
+      </div>
+
+      {/* Info fonctionnement */}
+      <div style={{background:C.primarySoft,border:`1px solid ${C.primary}33`,borderRadius:10,padding:16,fontSize:12,color:C.textMuted,lineHeight:1.7}}>
+        <strong style={{color:C.primary,display:'block',marginBottom:4}}>💡 Comment fonctionne la synchronisation</strong>
+        Un événement "journée entière" est créé pour chaque jour planifié dans l'agenda cible.
+        Chaque vétérinaire assigné est ajouté en <strong style={{color:C.text}}>participant</strong> — l'invitation apparaît
+        automatiquement dans son propre agenda Google Workspace.
+        La synchronisation est <strong style={{color:C.text}}>idempotente</strong> : relancer ne crée pas de doublons si vous utilisez les mêmes IDs d'événements.
+      </div>
+    </div>
+  );
+}
+
+    // à la fin :
+    const root = ReactDOM.createRoot(document.getElementById("gestion-root"));
+    root.render(<ProtectedApp />);
+  </script>
+</body>
+</html>
