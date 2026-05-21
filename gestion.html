@@ -170,7 +170,7 @@
   <script src="assets/js/main.js"></script>
 
   <script type="text/babel">
-    const { useState, useMemo, useCallback, useEffect } = React;
+    const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
     // ─── Persistance localStorage ──────────────────────────────
     const LS_KEY = 'sanceavet_v2';
@@ -392,21 +392,17 @@
           if(isWE(dow)) continue;
           if(!openDays[dow]) continue;
           const key=dk_(year,month,d);
-          if(newA[key]) continue; // déjà traité (ne devrait pas arriver)
-
-          // MIDI
-          const eligM=eligible(key,'midi');
-          const midiVet=eligM[0]?.id||null;
-          if(midiVet) load[midiVet].midi++;
+          if(newA[key]) continue;
 
           // SOIR — vendredi : exclure le veto de week-end si connu
           let eligS=eligible(key,'soir');
-          if(dow===5 && weVet) eligS=eligS.filter(v=>v.id!==weVet); // Vendredi
+          if(dow===5 && weVet) eligS=eligS.filter(v=>v.id!==weVet);
           if(eligS.length===0) eligS=eligible(key,'soir');
           const soirVet=eligS[0]?.id||null;
           if(soirVet) load[soirVet].soir++;
 
-          newA[key]={midi:midiVet, soir:soirVet};
+          // MIDI = SOIR par défaut (même personne)
+          newA[key]={midi:soirVet, soir:soirVet};
         }
 
         setAstreintes(newA);
@@ -637,13 +633,14 @@
               astreintes={astreintes}/>
           )}
 
-          {editDay&&(
+          {editDay&&ReactDOM.createPortal(
             <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
               allAlerts={allAlerts} updateSlot={updateSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               astreintes={astreintes} setAstreintes={setAstreintes}
-              onClose={()=>setEditDay(null)}/>
+              onClose={()=>setEditDay(null)}/>,
+            document.body
           )}
         </div>
       );
@@ -775,7 +772,7 @@
 
                   return(
                     <div key={di} className={'cal-cell'+(closed?' closed':we?' we-day':'')}
-                      onClick={()=>setEditDay(key)}>
+                      onClick={e=>{e.stopPropagation();setEditDay(key);}}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
@@ -1032,67 +1029,146 @@
 
     // ─── Panneau Astreinte (dans la modal) ────────────────────
     function AstreintePanel({datekey,vets,astreintes,setAstreintes,dow,wp}){
-      const dayA  = astreintes[datekey]||{midi:null,soir:null};
-      const we    = isWE(dow);
+      const dayA = astreintes[datekey]||{midi:null,soir:null};
+      const we   = isWE(dow);
+      // Sur semaine : midi suit soir par défaut, sauf si override manuel
+      const midiOverride = !we && dayA.midi !== dayA.soir && (dayA.midi !== null || dayA.soir === null);
+      const [showMidiOverride, setShowMidiOverride] = useState(midiOverride);
 
-      const set = (slot,vid) => setAstreintes(prev=>({
+      const setSoir = (vid) => {
+        setAstreintes(prev=>{
+          const cur = prev[datekey]||{midi:null,soir:null};
+          // si pas d'override midi, midi suit soir
+          const newMidi = showMidiOverride ? cur.midi : (vid||null);
+          return {...prev,[datekey]:{...cur, soir:vid||null, midi:newMidi}};
+        });
+      };
+      const setMidi = (vid) => setAstreintes(prev=>({
         ...prev,
-        [datekey]:{...( prev[datekey]||{midi:null,soir:null}),[slot]:vid||null}
+        [datekey]:{...(prev[datekey]||{midi:null,soir:null}), midi:vid||null}
       }));
+      const setSlot = (slot,vid) => slot==='soir' ? setSoir(vid) : setMidi(vid);
 
-      const slots = we
-        ? [{key:'midi',label:'☀️ Journée / nuit',desc:'Bloc week-end (midi → réouverture)'}]
-        : [
-            {key:'midi',label:'☀️ Pause midi',     desc:'Fin matin → début après-midi'},
-            {key:'soir',label:'🌙 Soir / nuit',    desc:'Fermeture → réouverture'},
-          ];
+      // Week-end : un seul bloc
+      if(we){
+        const cur=dayA.midi||null;
+        return(
+          <div>
+            <div className="astr-section">
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <div>
+                  <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>☀️🌙 Bloc week-end</span>
+                  <div style={{fontSize:11,color:'#9ca3af'}}>Samedi midi → lundi réouverture</div>
+                </div>
+                {cur&&<button onClick={()=>setAstreintes(prev=>({...prev,[datekey]:{midi:null,soir:null}}))}
+                  style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>Effacer</button>}
+              </div>
+              <VetSelector vets={vets} value={cur} onChange={v=>{
+                setAstreintes(prev=>({...prev,[datekey]:{midi:v,soir:v}}));
+              }}/>
+            </div>
+            <AstrInfoBox/>
+          </div>
+        );
+      }
 
+      // Semaine : soir + midi lié
+      const soirCur = dayA.soir||null;
+      const midiCur = dayA.midi||null;
       return(
         <div>
-          {slots.map(({key:slot,label,desc})=>{
-            const cur=dayA[slot]||null;
-            return(
-              <div key={slot} className="astr-section" style={{marginBottom:slot==='midi'&&!we?10:0}}>
-                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                  <div>
-                    <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>{label}</span>
-                    <div style={{fontSize:11,color:'#9ca3af'}}>{desc}</div>
-                  </div>
-                  {cur&&(
-                    <button onClick={()=>set(slot,null)}
-                      style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>
-                      Effacer
-                    </button>
-                  )}
-                </div>
-                <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                  {vets.map(v=>{
-                    const on=cur===v.id;
-                    return(
-                      <button key={v.id} onClick={()=>set(slot,on?null:v.id)} style={{
-                        display:'flex',alignItems:'center',gap:10,padding:'9px 13px',borderRadius:10,
-                        background:on?v.color+'14':'#f9fafb',
-                        border:'2px solid '+(on?v.color:'#e2e8f0'),
-                        cursor:'pointer',transition:'all .15s',textAlign:'left',
-                        fontFamily:"'Inter',sans-serif",fontSize:13,color:'#1f2937'
-                      }}>
-                        <div style={{width:10,height:10,borderRadius:'50%',background:v.color,flexShrink:0}}/>
-                        <span style={{flex:1,fontWeight:on?600:400}}>{v.name}</span>
-                        {v.phone&&<span style={{fontSize:11,color:'#6b7280'}}>📞 {v.phone}</span>}
-                        {on&&<span style={{color:v.color,fontSize:16}}>✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
+          {/* SOIR */}
+          <div className="astr-section" style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div>
+                <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>🌙 Soir / nuit</span>
+                <div style={{fontSize:11,color:'#9ca3af'}}>Fermeture → réouverture</div>
               </div>
+              {soirCur&&<button onClick={()=>setSoir(null)}
+                style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>Effacer</button>}
+            </div>
+            <VetSelector vets={vets} value={soirCur} onChange={setSoir}/>
+          </div>
+
+          {/* MIDI — lié au soir par défaut */}
+          <div className="astr-section">
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <div>
+                <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>☀️ Pause midi</span>
+                <div style={{fontSize:11,color:'#9ca3af'}}>Fin matin → début après-midi</div>
+              </div>
+              <button onClick={()=>{
+                if(showMidiOverride){
+                  // Relinker : remettre midi = soir
+                  setShowMidiOverride(false);
+                  setAstreintes(prev=>({...prev,[datekey]:{...(prev[datekey]||{}),midi:dayA.soir}}));
+                } else {
+                  setShowMidiOverride(true);
+                }
+              }} style={{
+                background:showMidiOverride?'#fef3c7':'#f0fdfa',
+                border:'1px solid '+(showMidiOverride?'#fde68a':'#99f6e4'),
+                color:showMidiOverride?'#92400e':'#0d9488',
+                borderRadius:6,padding:'3px 9px',fontSize:11,fontWeight:600,cursor:'pointer',
+                fontFamily:"'Inter',sans-serif"
+              }}>
+                {showMidiOverride?'🔗 Relier au soir':'✏️ Modifier'}
+              </button>
+            </div>
+            {showMidiOverride ? (
+              <VetSelector vets={vets} value={midiCur} onChange={setMidi}/>
+            ) : (
+              <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',
+                background:'#f8fafc',borderRadius:8,border:'1px dashed #e2e8f0'}}>
+                {soirCur ? (()=>{
+                  const v=vets.find(x=>x.id===soirCur);
+                  return v ? (
+                    <>
+                      <div style={{width:9,height:9,borderRadius:'50%',background:v.color}}/>
+                      <span style={{fontSize:13,color:'#374151',fontWeight:500}}>{v.name}</span>
+                      <span style={{fontSize:11,color:'#9ca3af',marginLeft:2}}>(= soir)</span>
+                    </>
+                  ) : null;
+                })() : <span style={{fontSize:12,color:'#9ca3af',fontStyle:'italic'}}>Aucun véto soir sélectionné</span>}
+              </div>
+            )}
+          </div>
+
+          <AstrInfoBox/>
+        </div>
+      );
+    }
+
+    function VetSelector({vets,value,onChange}){
+      return(
+        <div style={{display:'flex',flexDirection:'column',gap:6}}>
+          {vets.map(v=>{
+            const on=value===v.id;
+            return(
+              <button key={v.id} onClick={()=>onChange(on?null:v.id)} style={{
+                display:'flex',alignItems:'center',gap:10,padding:'9px 13px',borderRadius:10,
+                background:on?v.color+'14':'#f9fafb',
+                border:'2px solid '+(on?v.color:'#e2e8f0'),
+                cursor:'pointer',transition:'all .15s',textAlign:'left',
+                fontFamily:"'Inter',sans-serif",fontSize:13,color:'#1f2937',width:'100%'
+              }}>
+                <div style={{width:10,height:10,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                <span style={{flex:1,fontWeight:on?600:400}}>{v.name}</span>
+                {v.phone&&<span style={{fontSize:11,color:'#6b7280'}}>📞 {v.phone}</span>}
+                {on&&<span style={{color:v.color,fontSize:16}}>✓</span>}
+              </button>
             );
           })}
+        </div>
+      );
+    }
 
-          <div style={{marginTop:12,background:'#f0f9ff',border:'1px solid #bae6fd',
-            borderRadius:8,padding:'8px 12px',fontSize:11,color:'#0369a1',lineHeight:1.6}}>
-            💡 <strong>Règles appliquées à la génération :</strong> priorité aux vétos travaillant jusqu'à 18h30 
-            et au lendemain. Le vendredi soir évite le véto de week-end. Charge équilibrée sur l'année.
-          </div>
+    function AstrInfoBox(){
+      return(
+        <div style={{marginTop:12,background:'#f0f9ff',border:'1px solid #bae6fd',
+          borderRadius:8,padding:'8px 12px',fontSize:11,color:'#0369a1',lineHeight:1.6}}>
+          💡 <strong>Génération :</strong> l'astreinte midi suit automatiquement le soir. 
+          Utilisez "Modifier" pour définir un véto différent sur la pause midi.
         </div>
       );
     }
