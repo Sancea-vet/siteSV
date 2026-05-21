@@ -54,7 +54,9 @@
     .cal-cell{min-height:120px;padding:6px 5px;border-right:1px solid #f1f5f9;position:relative;transition:background .12s;cursor:pointer}
     .cal-cell:last-child{border-right:none}
     .cal-cell:hover{background:#f0fdfa}
-    .cal-cell.closed,.cal-cell.empty{background:#fafafa;cursor:default;pointer-events:none}
+    .cal-cell.empty{background:#fafafa;cursor:default;pointer-events:none}
+    .cal-cell.closed{background:#fafafa;cursor:pointer}
+    .cal-cell.closed:hover{background:#fdf4ff}
     .cal-cell.we-day{background:#fdfffe}
     .cal-day-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;margin-bottom:4px;color:#374151}
     .cal-day-num.today{background:#0d9488;color:#fff;font-weight:700}
@@ -438,7 +440,14 @@
 
         ['matin','aprem'].forEach(slot=>{
           const s=dayPlanning[slot];
-          if (!s) return;
+          if (!s) {
+            alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : créneau non couvert (la clinique doit ouvrir et fermer aux mêmes horaires)`});
+            return;
+          }
+
+          // Règle fixe : tous les créneaux doivent être remplis
+          if (s.vets.length===0)
+            alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : aucun véto assigné — tous les créneaux doivent être couverts`});
 
           // Vérif couverture min
           const minR=rules.find(r=>
@@ -632,7 +641,7 @@
             <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
               allAlerts={allAlerts} updateSlot={updateSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
-              isoWeek={isoWeek} weekParity={weekParity}
+              isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               astreintes={astreintes} setAstreintes={setAstreintes}
               onClose={()=>setEditDay(null)}/>
           )}
@@ -766,7 +775,7 @@
 
                   return(
                     <div key={di} className={'cal-cell'+(closed?' closed':we?' we-day':'')}
-                      onClick={()=>!closed&&setEditDay(key)}>
+                      onClick={()=>setEditDay(key)}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
@@ -794,6 +803,9 @@
                       ):(
                         hasP&&<div style={{fontSize:9,color:'#9ca3af',fontStyle:'italic'}}>—</div>
                       )}
+
+                      {/* Astreintes */}
+                      <AstrMini astrDay={astreintes[key]} vets={vets} dow={dow}/>
 
                       {alerts.length>0&&<div className="cal-alert-dot">{alerts.length}</div>}
                     </div>
@@ -896,11 +908,12 @@
     }
 
     // ─── Modal édition ─────────────────────────────────────────
-    function EditModal({datekey,vets,planning,unavail,allAlerts,updateSlot,resolveHoraire,year,month,isoWeek,weekParity,astreintes,setAstreintes,onClose}){
-      const [activeSlot, setActiveSlot] = useState('matin');
+    function EditModal({datekey,vets,planning,unavail,allAlerts,updateSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose}){
       const p=datekey.split('-');
       const day=parseInt(p[2]), m=parseInt(p[1])-1, y=+p[0];
       const dow=new Date(y,m,day).getDay();
+      const isClosed = openDays ? !openDays[dow] : false;
+      const [activeSlot, setActiveSlot] = useState(isClosed ? 'astreinte' : 'matin');
       const dp=planning[datekey]||emptyDay();
       const dayU=unavail[datekey]||{matin:[],aprem:[]};
       const alerts=allAlerts[datekey]||[];
@@ -926,6 +939,7 @@
                 <div>
                   <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937'}}>
                     {JS_FULL[dow]} {day} {MOIS[m]}
+                    {isClosed&&<span style={{marginLeft:8,fontSize:12,fontWeight:500,color:'#9ca3af',background:'#f3f4f6',borderRadius:6,padding:'2px 8px'}}>Fermé</span>}
                   </h3>
                   <div style={{display:'flex',gap:6,marginTop:4}}>
                     <span style={{fontSize:11,color:'#6b7280'}}>Semaine {wn}</span>
@@ -940,9 +954,12 @@
             </div>
 
             <div className="modal-body">
-              {/* Tabs matin/aprem */}
+              {/* Tabs matin/aprem/astreinte */}
               <div className="slot-tabs">
-                {[['matin','🌅 Matin'],['aprem','🌇 Après-midi'],['astreinte','🌙 Astreinte']].map(([s,l])=>(
+                {[
+                  ...(!isClosed ? [['matin','🌅 Matin'],['aprem','🌇 Après-midi']] : []),
+                  ['astreinte','🌙 Astreinte']
+                ].map(([s,l])=>(
                   <button key={s} onClick={()=>setActiveSlot(s)}
                     className={'slot-tab'+(activeSlot===s?' active':'')}>
                     {l} {alerts.filter(a=>a.slot===s).length>0&&(
@@ -952,49 +969,53 @@
                 ))}
               </div>
 
-              {/* Alertes du slot */}
-              {slotAlerts.length>0&&(
-                <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,padding:10,marginBottom:14}}>
-                  {slotAlerts.map((a,i)=>(
-                    <div key={i} style={{fontSize:12,color:a.level==='error'?'#dc2626':'#d97706',
-                      display:'flex',gap:6,marginBottom:i<slotAlerts.length-1?5:0}}>
-                      {a.level==='error'?'✕':'⚠'} {a.msg}
+              {/* Sections planning (matin / aprem uniquement) */}
+              {activeSlot !== 'astreinte' && (
+                <>
+                  {/* Alertes du slot */}
+                  {slotAlerts.length>0&&(
+                    <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,padding:10,marginBottom:14}}>
+                      {slotAlerts.map((a,i)=>(
+                        <div key={i} style={{fontSize:12,color:a.level==='error'?'#dc2626':'#d97706',
+                          display:'flex',gap:6,marginBottom:i<slotAlerts.length-1?5:0}}>
+                          {a.level==='error'?'✕':'⚠'} {a.msg}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              {/* Choix horaire */}
-              <p className="g-label">Horaire</p>
-              <div style={{display:'flex',gap:8,marginBottom:16}}>
-                {horaireOptions.map(h=>(
-                  <div key={h.id} onClick={()=>setHoraire(h.id)}
-                    className={'horaire-card'+(slotData.horaire===h.id?' selected':'')}>
-                    <div className="htime">{h.label}</div>
-                    <div className="htag">{h.slot==='matin'?'Matin':'Après-midi'}</div>
+                  {/* Choix horaire */}
+                  <p className="g-label">Horaire</p>
+                  <div style={{display:'flex',gap:8,marginBottom:16}}>
+                    {horaireOptions.map(h=>(
+                      <div key={h.id} onClick={()=>setHoraire(h.id)}
+                        className={'horaire-card'+(slotData.horaire===h.id?' selected':'')}>
+                        <div className="htime">{h.label}</div>
+                        <div className="htag">{h.slot==='matin'?'Matin':'Après-midi'}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
 
-              {/* Assignation vétos */}
-              <p className="g-label">Vétérinaires assignés</p>
-              <div style={{display:'flex',flexDirection:'column',gap:7}}>
-                {vets.map(v=>{
-                  const on=slotData.vets.includes(v.id), inU=slotU.includes(v.id);
-                  return(
-                    <button key={v.id} onClick={()=>toggleVet(v.id)}
-                      className={'vet-toggle'+(on?' on':'')}
-                      style={on?{'--vc':v.color+'14','--vb':v.color}:{}}>
-                      <div style={{width:11,height:11,borderRadius:'50%',background:v.color,flexShrink:0}}/>
-                      <span style={{flex:1,fontWeight:on?600:400,color:'#1f2937'}}>{v.name}</span>
-                      {inU&&<span style={{fontSize:10,color:'#d97706',fontWeight:700,
-                        background:'#fffbeb',padding:'2px 7px',borderRadius:4,border:'1px solid #fde68a'}}>INDISPO</span>}
-                      {on&&<span style={{color:v.color,fontSize:16}}>✓</span>}
-                    </button>
-                  );
-                })}
-              </div>
-
+                  {/* Assignation vétos */}
+                  <p className="g-label">Vétérinaires assignés</p>
+                  <div style={{display:'flex',flexDirection:'column',gap:7}}>
+                    {vets.map(v=>{
+                      const on=slotData.vets.includes(v.id), inU=slotU.includes(v.id);
+                      return(
+                        <button key={v.id} onClick={()=>toggleVet(v.id)}
+                          className={'vet-toggle'+(on?' on':'')}
+                          style={on?{'--vc':v.color+'14','--vb':v.color}:{}}>
+                          <div style={{width:11,height:11,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                          <span style={{flex:1,fontWeight:on?600:400,color:'#1f2937'}}>{v.name}</span>
+                          {inU&&<span style={{fontSize:10,color:'#d97706',fontWeight:700,
+                            background:'#fffbeb',padding:'2px 7px',borderRadius:4,border:'1px solid #fde68a'}}>INDISPO</span>}
+                          {on&&<span style={{color:v.color,fontSize:16}}>✓</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
 
               {/* ── Panneau Astreinte ── */}
               {activeSlot==='astreinte'&&(
@@ -1197,6 +1218,19 @@
                 <button key={i} onClick={()=>setOpenDays(prev=>{const n=[...prev];n[i]=!n[i];return n;})}
                   className={'day-toggle '+(openDays[i]?'on':'off')}>{j}</button>
               ))}
+            </div>
+          </div>
+
+          {/* Règle fixe : créneaux obligatoires */}
+          <div className="g-card" style={{marginBottom:16,border:'1.5px solid #99f6e4',background:'#f0fdfa'}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:8,color:'#0d9488',textTransform:'uppercase',letterSpacing:'.06em'}}>
+              🔒 Règle fixe — non modifiable
+            </h3>
+            <div className="rule-row" style={{background:'#fff'}}>
+              <span style={{flex:1,fontSize:13}}>
+                🏥 <strong>Tous les créneaux ouverts doivent être couverts</strong> — la clinique ouvre et ferme toujours aux mêmes horaires (matin ET après-midi obligatoires chaque jour d'ouverture)
+              </span>
+              <span className="slot-badge slot-all">Fixe</span>
             </div>
           </div>
 
