@@ -481,9 +481,10 @@
 
       const allAlerts   = useMemo(()=>{
         const res={};
-        Object.entries(planning).forEach(([k,dp])=>{const a=getAlerts(k,dp);if(a.length)res[k]=a;});
+        const pfx=`${year}-${String(month+1).padStart(2,'0')}-`;
+        Object.entries(planning).filter(([k])=>k.startsWith(pfx)).forEach(([k,dp])=>{const a=getAlerts(k,dp);if(a.length)res[k]=a;});
         return res;
-      },[planning,getAlerts]);
+      },[planning,getAlerts,year,month]);
       const totalAlerts = useMemo(()=>Object.values(allAlerts).reduce((s,a)=>s+a.length,0),[allAlerts]);
 
       // Génération
@@ -525,7 +526,7 @@
       const changeMonth = useCallback((delta)=>{
         let ny=year,nm=month+delta;
         if(nm<0){ny--;nm=11;}if(nm>11){ny++;nm=0;}
-        setYear(ny);setMonth(nm);setPlanning({});setUnavail({});setValidated(false);
+        setYear(ny);setMonth(nm);setValidated(false);
       },[year,month]);
 
       const exportICS = useCallback(()=>{
@@ -653,8 +654,9 @@
       const [uDay,   setUDay]   = useState('');
       const [uSlot,  setUSlot]  = useState('matin');
 
+      const pfxCur = `${year}-${String(month+1).padStart(2,'0')}-`;
       const totalU=Object.values(unavail).reduce((s,d)=>s+(d.matin||[]).length+(d.aprem||[]).length,0);
-      const hasP=Object.keys(planning).filter(k=>planning[k]).length>0;
+      const hasP=Object.keys(planning).filter(k=>k.startsWith(pfxCur)&&planning[k]).length>0;
 
       const doAdd=()=>{
         if(!uVet||!uDay) return;
@@ -772,7 +774,7 @@
 
                   return(
                     <div key={di} className={'cal-cell'+(closed?' closed':we?' we-day':'')}
-                      onClick={e=>{e.stopPropagation();setEditDay(key);}}>
+                      onClick={e=>{e.stopPropagation();e.nativeEvent&&e.nativeEvent.stopImmediatePropagation();setEditDay(key);}}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
@@ -1519,8 +1521,8 @@
         const counts = Object.fromEntries(vets.map(v=>[v.id,{matin:0,aprem:0,matinH:{matin_A:0,matin_B:0},apremH:{aprem_A:0,aprem_B:0},astrMidi:0,astrSoir:0,days:new Set()}]));
         Object.values(months).forEach(({planning:p, astreintes:a})=>{
           if(a) Object.values(a).forEach(({midi,soir})=>{
-            if(midi&&load[midi]) load[midi].astrMidi=(load[midi].astrMidi||0)+1;
-            if(soir&&load[soir]) load[soir].astrSoir=(load[soir].astrSoir||0)+1;
+            if(midi&&counts[midi]) counts[midi].astrMidi=(counts[midi].astrMidi||0)+1;
+            if(soir&&counts[soir]) counts[soir].astrSoir=(counts[soir].astrSoir||0)+1;
           });
           Object.entries(p||{}).forEach(([dk,dp])=>{
             if(!dp) return;
