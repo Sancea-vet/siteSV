@@ -786,14 +786,14 @@
               astreintes={astreintes}/>
           )}
 
-          {editDay&&(()=>{ console.log('App: render portal', editDay); return ReactDOM.createPortal(
+          {editDay&&(()=>{ console.log('App: render portal -> body', editDay); return ReactDOM.createPortal(
             <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
               allAlerts={allAlerts} updateSubSlot={updateSubSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               astreintes={astreintes} setAstreintes={setAstreintes}
               onClose={()=>setEditDay(null)}/>,
-            document.getElementById('modal-portal')) })()}
+            document.body) })()}
         </div>
       );
     }
