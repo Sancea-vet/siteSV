@@ -642,11 +642,14 @@
             const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&(r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)));
             const need=minR?minR.min:1;
             const asgn=elig.slice(0,need);
-            asgn.forEach(v=>wl[v.id]++);
-            day[slot]=[
-              {horaire:horaireA, vets:asgn.map(v=>v.id)},
-              {horaire:horaireB, vets:[]},
-            ];
+            // répartir les vétérinaires demandés sur les sous-créneaux (A/B)
+            const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
+            asgn.forEach((v, idx)=>{
+              const target = slotArrTemplate[idx % slotArrTemplate.length];
+              target.vets.push(v.id);
+              wl[v.id]++;
+            });
+            day[slot]=slotArrTemplate;
           });
           newP[key]=day;
         }
