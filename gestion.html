@@ -786,15 +786,14 @@
               astreintes={astreintes}/>
           )}
 
-          {editDay&&ReactDOM.createPortal(
+          {editDay&&(()=>{ console.log('App: render portal', editDay); return ReactDOM.createPortal(
             <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
               allAlerts={allAlerts} updateSubSlot={updateSubSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               astreintes={astreintes} setAstreintes={setAstreintes}
               onClose={()=>setEditDay(null)}/>,
-            document.getElementById('modal-portal')
-          )}
+            document.getElementById('modal-portal')) })()}
         </div>
       );
     }
@@ -1107,6 +1106,7 @@
     function EditModal({datekey,vets,planning,unavail,allAlerts,updateSubSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose}){
       const p=datekey.split('-');
       const day=parseInt(p[2]), m=parseInt(p[1])-1, y=+p[0];
+      useEffect(()=>{ console.log('EditModal mount', datekey); return ()=>console.log('EditModal unmount', datekey); },[]);
       const dow=new Date(y,m,day).getDay();
       const isClosed = openDays ? !openDays[dow] : false;
       const [activeSlot, setActiveSlot] = useState(isClosed ? 'astreinte' : 'matin');
