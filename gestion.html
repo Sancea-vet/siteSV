@@ -64,6 +64,8 @@
     .cal-cell.closed{background:#fafafa;cursor:pointer}
     .cal-cell.closed:hover{background:#fdf4ff}
     .cal-cell.we-day{background:#fdfffe}
+    .cal-cell.holiday{background:#fffbeb !important;cursor:pointer}
+    .cal-cell.holiday:hover{background:#fef3c7 !important}
     .cal-day-num{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:500;margin-bottom:4px;color:#374151}
     .cal-day-num.today{background:#0d9488;color:#fff;font-weight:700}
     .cal-day-num.closed-n{color:#d1d5db}
@@ -275,6 +277,56 @@
     }
     const isEvenWeek = (y,m,d) => isoWeek(y,m,d)%2===0;
     const weekParity = (y,m,d) => isEvenWeek(y,m,d)?'even':'odd';
+
+    // ─── Jours fériés français ─────────────────────────────────
+    function easterDate(year) {
+      // Algorithme de Meeus/Jones/Butcher
+      const a=year%19, b=Math.floor(year/100), c=year%100;
+      const d=Math.floor(b/4), e=b%4, f=Math.floor((b+8)/25);
+      const g=Math.floor((b-f+1)/3), h=(19*a+b-d-g+15)%30;
+      const i=Math.floor(c/4), k=c%4, l=(32+2*e+2*i-h-k)%7;
+      const m=Math.floor((a+11*h+22*l)/451);
+      const mo=Math.floor((h+l-7*m+114)/31)-1;
+      const dy=((h+l-7*m+114)%31)+1;
+      return new Date(year,mo,dy);
+    }
+    function getFrenchHolidays(year) {
+      const easter=easterDate(year);
+      const addDays=(base,n)=>{ const d=new Date(base); d.setDate(d.getDate()+n); return d; };
+      const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      return new Set([
+        fmt(new Date(year,0,1)),    // 1er janvier
+        fmt(addDays(easter,1)),      // Lundi de Pâques
+        fmt(new Date(year,4,1)),    // 1er mai
+        fmt(new Date(year,4,8)),    // 8 mai
+        fmt(addDays(easter,39)),     // Ascension
+        fmt(addDays(easter,50)),     // Lundi de Pentecôte
+        fmt(new Date(year,6,14)),   // 14 juillet
+        fmt(new Date(year,7,15)),   // 15 août
+        fmt(new Date(year,10,1)),   // 1er novembre
+        fmt(new Date(year,10,11)),  // 11 novembre
+        fmt(new Date(year,11,25)),  // 25 décembre
+      ]);
+    }
+    const HOLIDAY_NAMES = {
+      '01-01':'Jour de l\'An', '05-01':'Fête du Travail', '05-08':'Victoire 1945',
+      '07-14':'Fête Nationale', '08-15':'Assomption', '11-01':'Toussaint',
+      '11-11':'Armistice', '12-25':'Noël',
+    };
+    function getHolidayName(datekey, holidays) {
+      if(!holidays||!holidays.has(datekey)) return null;
+      const mm_dd = datekey.slice(5);
+      if(HOLIDAY_NAMES[mm_dd]) return HOLIDAY_NAMES[mm_dd];
+      // Jours mobiles
+      const [y,mo,d]=datekey.split('-').map(Number);
+      const easter=easterDate(y);
+      const addDays=(base,n)=>{const dt=new Date(base);dt.setDate(dt.getDate()+n);return dt;};
+      const fmt=dt=>`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+      if(fmt(addDays(easter,1))===datekey) return 'Lundi de Pâques';
+      if(fmt(addDays(easter,39))===datekey) return 'Ascension';
+      if(fmt(addDays(easter,50))===datekey) return 'Lundi de Pentecôte';
+      return 'Jour férié';
+    }
 
     function parityMatch(ruleParity, y,m,d) {
       if (ruleParity==='all') return true;
@@ -521,6 +573,19 @@
           if(chosen){ load[chosen].midi+=2; load[chosen].soir+=2; }
         }
 
+        // Passe 1.5 : jours fériés tombant en semaine (traités comme dimanches)
+        for(let d=1;d<=numDays;d++){
+          const dow=dowJS(year,month,d);
+          if(isWE(dow)) continue; // déjà couverts par la passe 1
+          const key=dk_(year,month,d);
+          if(!holidays.has(key)) continue;
+          if(newA[key]) continue; // déjà assigné
+          const elig=eligible(key,'soir');
+          const chosen=elig[0]?.id||null;
+          newA[key]={midi:chosen, soir:chosen};
+          if(chosen){ load[chosen].midi++; load[chosen].soir++; }
+        }
+
         // Passe 2 : jours de semaine
         for(let d=1;d<=numDays;d++){
           const dow=dowJS(year,month,d);
@@ -528,6 +593,7 @@
           if(!openDays[dow]) continue;
           const key=dk_(year,month,d);
           if(newA[key]) continue;
+          if(holidays.has(key)) continue; // traité en passe 1.5
 
           // SOIR — vendredi : exclure le veto de week-end si connu
           let eligS=eligible(key,'soir');
@@ -541,10 +607,11 @@
         }
 
         setAstreintes(newA);
-      },[vets,planning,unavail,openDays,unavail,numDays,year,month,yearlyData]);
+      },[vets,planning,unavail,openDays,unavail,numDays,year,month,yearlyData,holidays]);
 
       const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
+      const holidays = useMemo(()=>getFrenchHolidays(year),[year]);
 
       // Quel horaire s'applique pour un slot à une date donnée ?
       const resolveHoraire = useCallback((y,m,d,slot)=>{
@@ -566,6 +633,7 @@
         const y=+p[0],m=+p[1]-1,d=+p[2];
         const dow=new Date(y,m,d).getDay();
         if (!openDays[dow]) return [];
+        if (holidays.has(datekey)) return []; // jour férié = fermé, pas d'alerte planning
         const alerts=[], we=isWE(dow), wp=weekParity(y,m,d);
         const dayU=unavail[datekey]||{matin:[],aprem:[]};
 
@@ -611,7 +679,7 @@
         });
 
         return alerts;
-      },[rules,vets,unavail,openDays,resolveHoraire]);
+      },[rules,vets,unavail,openDays,resolveHoraire,holidays]);
 
       const allAlerts   = useMemo(()=>{
         const res={};
@@ -627,7 +695,7 @@
         const wl=Object.fromEntries(vets.map(v=>[v.id,0]));
         for (let d=1;d<=numDays;d++){
           const key=dk(year,month,d), dow=dowJS(year,month,d);
-          if (!openDays[dow]){newP[key]=null;continue;}
+          if (!openDays[dow] || holidays.has(key)){newP[key]=null;continue;}
           const we=isWE(dow);
           const dayU=unavail[key]||{matin:[],aprem:[]};
           const day={};
@@ -654,7 +722,7 @@
           newP[key]=day;
         }
         setPlanning(newP); setValidated(false);
-      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire]);
+      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays]);
 
       const updateSubSlot = useCallback((datekey, slot, horaireId, updater)=>{
         setPlanning(prev=>{
@@ -717,7 +785,7 @@
               <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:'#1f2937',marginBottom:4}}>
                 Planning vétérinaire
               </h1>
-              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · semaines paires/impaires · sauvegarde automatique</p>
+              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · semaines paires/impaires · jours fériés automatiques · sauvegarde automatique</p>
             </div>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               {saveFlash&&(
@@ -757,6 +825,7 @@
               allAlerts={allAlerts} totalAlerts={totalAlerts}
               openDays={openDays} validated={validated}
               onChangeMonth={changeMonth} onGenerate={generate}
+              holidays={holidays}
               onValidate={()=>{
                 setValidated(true);
                 const mkey=String(month);
@@ -793,6 +862,7 @@
               allAlerts={allAlerts} updateSubSlot={updateSubSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
+              holidays={holidays}
               astreintes={astreintes} setAstreintes={setAstreintes}
               onClose={()=>setEditDay(null)}/>,
             document.body
@@ -802,7 +872,7 @@
     }
 
     // ─── Onglet Planning ───────────────────────────────────────
-    function PlanningTab({year,month,numDays,startCol,vets,planning,unavail,allAlerts,totalAlerts,openDays,validated,onChangeMonth,onGenerate,onValidate,updateSubSlot,setUnavail,setEditDay,resolveHoraire,isoWeek,weekParity,astreintes,setAstreintes,onGenerateAstreintes}){
+    function PlanningTab({year,month,numDays,startCol,vets,planning,unavail,allAlerts,totalAlerts,openDays,validated,onChangeMonth,onGenerate,onValidate,updateSubSlot,setUnavail,setEditDay,resolveHoraire,isoWeek,weekParity,astreintes,setAstreintes,onGenerateAstreintes,holidays}){
       const [showU,  setShowU]  = useState(false);
       const [uVet,   setUVet]   = useState('');
       const [uDay,   setUDay]   = useState('');
@@ -947,17 +1017,19 @@
                   if(!day) return <div key={di} className="cal-cell empty"/>;
                   const key=dk(year,month,day);
                   const dow=dowJS(year,month,day);
-                  const closed=!openDays[dow];
+                  const isHoliday=holidays&&holidays.has(key);
+                  const closed=!openDays[dow]||isHoliday;
                   const dp=planning[key];
                   const alerts=allAlerts[key]||[];
                   const today=new Date().toDateString()===new Date(year,month,day).toDateString();
                   const we=isWE(dow);
                   const wn=isoWeek(year,month,day);
                   const wp=weekParity(year,month,day);
+                  const holidayName=isHoliday?getHolidayName(key,holidays):null;
 
                   return(
                     <div key={di} data-datekey={key}
-                      className={'cal-cell'+(closed?' closed':we?' we-day':'')}>
+                      className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
@@ -969,10 +1041,19 @@
                             S{wn} {wp==='even'?'P':'I'}
                           </span>
                         )}
+                        {isHoliday&&(
+                          <span style={{fontSize:7,fontWeight:700,color:'#b45309',background:'#fef3c7',
+                            border:'1px solid #fcd34d',borderRadius:4,padding:'1px 4px',maxWidth:52,
+                            overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',lineHeight:1.4}}>
+                            🎌 {holidayName}
+                          </span>
+                        )}
                       </div>
 
                       {closed?(
-                        <div style={{fontSize:9,color:'#d1d5db',textTransform:'uppercase',letterSpacing:'.05em'}}>Fermé</div>
+                        <div style={{fontSize:9,color:isHoliday?'#b45309':'#d1d5db',textTransform:'uppercase',letterSpacing:'.05em',fontWeight:isHoliday?600:400}}>
+                          {isHoliday?'Férié':'Fermé'}
+                        </div>
                       ):dp?(
                         <div style={{display:'flex',flexDirection:'column',gap:3}}>
                           {/* Matin */}
@@ -987,7 +1068,7 @@
                       )}
 
                       {/* Astreintes */}
-                      <AstrMini astrDay={astreintes[key]} vets={vets} dow={dow}/>
+                      <AstrMini astrDay={astreintes[key]} vets={vets} dow={dow} isHoliday={isHoliday}/>
 
                       {alerts.length>0&&<div className="cal-alert-dot">{alerts.length}</div>}
                     </div>
@@ -1005,7 +1086,8 @@
                 {v.name}
               </div>
             ))}
-            <div style={{display:'flex',gap:8,marginLeft:'auto',alignItems:'center',fontSize:11,color:'#9ca3af'}}>
+            <div style={{display:'flex',gap:8,marginLeft:'auto',alignItems:'center',fontSize:11,color:'#9ca3af',flexWrap:'wrap'}}>
+              <span style={{background:'#fef3c7',color:'#b45309',border:'1px solid #fcd34d',borderRadius:4,padding:'1px 5px',fontWeight:700,fontSize:10}}>🎌</span> Jour férié
               <span style={{background:'#dbeafe',color:'#1d4ed8',borderRadius:4,padding:'1px 5px',fontWeight:700,fontSize:10}}>S# P</span> Semaine paire
               <span style={{background:'#fce7f3',color:'#be185d',borderRadius:4,padding:'1px 5px',fontWeight:700,fontSize:10}}>S# I</span> Semaine impaire
             </div>
@@ -1039,9 +1121,9 @@
 
     // Mini affichage d'un slot dans la cellule
 
-    function AstrMini({astrDay,vets,dow}){
+    function AstrMini({astrDay,vets,dow,isHoliday}){
       if(!astrDay||(!astrDay.midi&&!astrDay.soir)) return null;
-      const we=isWE(dow);
+      const we=isWE(dow)||isHoliday;
       const mV=vets.find(v=>v.id===astrDay.midi);
       const sV=vets.find(v=>v.id===astrDay.soir);
       return(
@@ -1102,11 +1184,13 @@
     }
 
     // ─── Modal édition ─────────────────────────────────────────
-    function EditModal({datekey,vets,planning,unavail,allAlerts,updateSubSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose}){
+    function EditModal({datekey,vets,planning,unavail,allAlerts,updateSubSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose,holidays}){
       const p=datekey.split('-');
       const day=parseInt(p[2]), m=parseInt(p[1])-1, y=+p[0];
       const dow=new Date(y,m,day).getDay();
-      const isClosed = openDays ? !openDays[dow] : false;
+      const isHoliday=holidays&&holidays.has(datekey);
+      const holidayName=isHoliday?getHolidayName(datekey,holidays):null;
+      const isClosed = isHoliday || (openDays ? !openDays[dow] : false);
       const [activeSlot, setActiveSlot] = useState(isClosed ? 'astreinte' : 'matin');
       const dp=planning[datekey]||emptyDay();
       const dayU=unavail[datekey]||{matin:[],aprem:[]};
@@ -1138,7 +1222,8 @@
                 <div>
                   <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937'}}>
                     {JS_FULL[dow]} {day} {MOIS[m]}
-                    {isClosed&&<span style={{marginLeft:8,fontSize:12,fontWeight:500,color:'#9ca3af',background:'#f3f4f6',borderRadius:6,padding:'2px 8px'}}>Fermé</span>}
+                    {isHoliday&&<span style={{marginLeft:8,fontSize:12,fontWeight:600,color:'#b45309',background:'#fef3c7',border:'1px solid #fcd34d',borderRadius:6,padding:'2px 8px'}}>🎌 {holidayName}</span>}
+                    {!isHoliday&&isClosed&&<span style={{marginLeft:8,fontSize:12,fontWeight:500,color:'#9ca3af',background:'#f3f4f6',borderRadius:6,padding:'2px 8px'}}>Fermé</span>}
                   </h3>
                   <div style={{display:'flex',gap:6,marginTop:4}}>
                     <span style={{fontSize:11,color:'#6b7280'}}>Semaine {wn}</span>
