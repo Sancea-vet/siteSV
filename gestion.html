@@ -356,6 +356,7 @@
       const [yearlyData,setYearlyData]= useState({});
       const [astreintes,setAstreintes]= useState({});
       const [editDay,   setEditDay]   = useState(null);
+      useEffect(()=>{ if(editDay) console.log('App: editDay set', editDay); },[editDay]);
       const [gclientId, setGclientId] = useState('');
       const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
@@ -817,6 +818,7 @@
             if (el && el.nodeType === 3 && el.parentElement) el = el.parentElement; // handle text nodes
             const cell = el && el.closest ? el.closest('[data-datekey]') : null;
             if (cell) {
+              console.log('planning handler', {type:e.type, target:el, datekey: (cell.dataset?cell.dataset.datekey:cell.getAttribute('data-datekey'))});
               e.preventDefault();
               e.stopPropagation();
               if (e.stopImmediatePropagation) e.stopImmediatePropagation();
