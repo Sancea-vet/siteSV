@@ -2217,7 +2217,44 @@
     }
 
     const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<ProtectedApp />);
+
+    // Global error handlers to surface runtime errors in the page (helps debugging blank screen)
+    function showFatalError(err) {
+      try {
+        const el = document.getElementById('gestion-root');
+        if (!el) return;
+        el.innerHTML = '';
+        const box = document.createElement('div');
+        box.style.padding = '28px';
+        box.style.background = '#fff5f5';
+        box.style.border = '1px solid #fecaca';
+        box.style.color = '#7f1d1d';
+        box.style.fontFamily = 'Inter, sans-serif';
+        box.style.borderRadius = '8px';
+        box.style.maxWidth = '880px';
+        box.style.margin = '40px auto';
+        box.innerText = 'Erreur JavaScript : ' + (err && err.message ? err.message : String(err));
+        el.appendChild(box);
+      } catch (e) {
+        console.error('Cannot display fatal error', e);
+      }
+    }
+
+    window.addEventListener('error', (e) => {
+      console.error('Captured error', e.error || e.message);
+      showFatalError(e.error || e.message || 'Erreur inconnue');
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      console.error('Unhandled rejection', e.reason);
+      showFatalError(e.reason || 'Rejection inconnue');
+    });
+
+    try {
+      root.render(<ProtectedApp />);
+    } catch (err) {
+      console.error('Render failed', err);
+      showFatalError(err);
+    }
   </script>
 </body>
 </html>
