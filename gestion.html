@@ -812,15 +812,27 @@
         const grid = gridRef.current;
         if(!grid) return;
         const handler = (e) => {
-          const cell = e.target.closest('[data-datekey]');
-          if(cell) {
-            e.stopPropagation();
-            e.stopImmediatePropagation();
-            setEditDay(cell.dataset.datekey);
+          try {
+            let el = e.target;
+            if (el && el.nodeType === 3 && el.parentElement) el = el.parentElement; // handle text nodes
+            const cell = el && el.closest ? el.closest('[data-datekey]') : null;
+            if (cell) {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+              setEditDay(cell.getAttribute('data-datekey') || (cell.dataset && cell.dataset.datekey));
+            }
+          } catch(err) {
+            console.error('planning click handler error', err);
           }
         };
         grid.addEventListener('click', handler, {capture:true});
-        return ()=>grid.removeEventListener('click', handler, {capture:true});
+        // pointerdown can catch some interactions earlier in certain browsers
+        grid.addEventListener('pointerdown', handler, {capture:true});
+        return ()=>{
+          grid.removeEventListener('click', handler, {capture:true});
+          grid.removeEventListener('pointerdown', handler, {capture:true});
+        };
       },[setEditDay]);
 
       const pfxCur = `${year}-${String(month+1).padStart(2,'0')}-`;
