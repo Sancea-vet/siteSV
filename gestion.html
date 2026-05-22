@@ -263,31 +263,8 @@
     const daysInMonth = (y,m) => new Date(y,m+1,0).getDate();
     const firstCol    = (y,m) => (new Date(y,m,1).getDay()+6)%7;
     const dowJS       = (y,m,d) => new Date(y,m,d).getDay();
-    const dk          = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isWE        = (dow) => dow===0||dow===6;
-    // Vérifie si une date est un week-end ou un jour férié français
-    const isWEOrHoliday = (y, m, d, publicHolidays) => {
-      const dow = dowJS(y, m, d);
-      const dateKey = dk(y, m, d);
-      return isWE(dow) || publicHolidays[dateKey];
-    };
-    
-    // Récupère les jours fériés français depuis l'API Nager.Date et les cache
-    async function fetchPublicHolidays(year) {
-      try {
-        const response = await fetch(`https://date.nager.at/api/v3/publicholidays/${year}/FR`);
-        if (!response.ok) throw new Error('API call failed');
-        const holidays = await response.json();
-        const result = {};
-        holidays.forEach(h => {
-          result[h.date] = {name: h.localName, date: h.date};
-        });
-        return result;
-      } catch (err) {
-        console.warn('Impossible de récupérer les jours fériés:', err);
-        return {};
-      }
-    }
+    const dk          = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
     function isoWeek(y,m,d) {
       const date = new Date(y,m,d);
@@ -383,7 +360,6 @@
       const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
       const [loaded,    setLoaded]    = useState(false);
-      const [publicHolidays, setPublicHolidays] = useState({});
 
       // ── Chargement IndexedDB au démarrage ─────────────────────
       useEffect(()=>{
@@ -400,20 +376,6 @@
           if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
           if(d.gclientId)  setGclientId(d.gclientId);
           if(d.calId)      setCalId(d.calId);
-          if(d.publicHolidays) setPublicHolidays(d.publicHolidays);
-          
-          // Charge les jours fériés pour l'année courante si non en cache
-          const currYear = new Date().getFullYear();
-          const cachedHolidays = d.publicHolidays || {};
-          if (!cachedHolidays[currYear]) {
-            const holidays = await fetchPublicHolidays(currYear);
-            if (Object.keys(holidays).length > 0) {
-              const updated = {...cachedHolidays, [currYear]: holidays};
-              setPublicHolidays(updated);
-              await idbSet('publicHolidays', updated);
-            }
-          }
-          
           setLoaded(true);
         })();
       },[]);
@@ -435,7 +397,6 @@
           await idbSet('nav',       {year:data.year, month:data.month});
           await idbSet('gclientId', data.gclientId);
           await idbSet('calId',     data.calId);
-          await idbSet('publicHolidays', data.publicHolidays);
           setSaveFlash(true);
           setTimeout(()=>setSaveFlash(false), 1800);
         }, 800);
@@ -443,18 +404,18 @@
 
       useEffect(()=>{
         if(loaded)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,publicHolidays});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,publicHolidays]);
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
-        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId,publicHolidays};
+        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId};
         const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
         URL.revokeObjectURL(url);
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId,publicHolidays]);
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId]);
 
       const importJSON = useCallback(()=>{
         const input = document.createElement('input');
@@ -475,7 +436,6 @@
               if(d.astreintes) setAstreintes(d.astreintes);
               if(d.gclientId)  setGclientId(d.gclientId);
               if(d.calId)      setCalId(d.calId);
-              if(d.publicHolidays) setPublicHolidays(d.publicHolidays);
               alert('✅ Import réussi !');
             } catch(err){ alert('❌ Fichier JSON invalide'); }
           };
@@ -564,7 +524,7 @@
         // Passe 2 : jours de semaine
         for(let d=1;d<=numDays;d++){
           const dow=dowJS(year,month,d);
-          if(isWEOrHoliday(year,month,d,publicHolidays)) continue;
+          if(isWE(dow)) continue;
           if(!openDays[dow]) continue;
           const key=dk_(year,month,d);
           if(newA[key]) continue;
@@ -581,14 +541,14 @@
         }
 
         setAstreintes(newA);
-      },[vets,planning,unavail,openDays,unavail,numDays,year,month,yearlyData,publicHolidays]);
+      },[vets,planning,unavail,openDays,unavail,numDays,year,month,yearlyData]);
 
       const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
 
       // Quel horaire s'applique pour un slot à une date donnée ?
       const resolveHoraire = useCallback((y,m,d,slot)=>{
-        const dow=dowJS(y,m,d), we=isWEOrHoliday(y,m,d,publicHolidays), wp=weekParity(y,m,d);
+        const dow=dowJS(y,m,d), we=isWE(dow), wp=weekParity(y,m,d);
         const r=rules.find(r=>
           r.type==='horaire_rule' &&
           r.slot===slot &&
@@ -597,7 +557,7 @@
         );
         if (r) return r.horaire;
         return slot==='matin'?'matin_A':'aprem_A';
-      },[rules,publicHolidays]);
+      },[rules]);
 
       // Alertes pour un jour
       const getAlerts = useCallback((datekey, dayPlanning)=>{
@@ -606,7 +566,7 @@
         const y=+p[0],m=+p[1]-1,d=+p[2];
         const dow=new Date(y,m,d).getDay();
         if (!openDays[dow]) return [];
-        const alerts=[], we=isWEOrHoliday(y,m,d,publicHolidays), wp=weekParity(y,m,d);
+        const alerts=[], we=isWE(dow), wp=weekParity(y,m,d);
         const dayU=unavail[datekey]||{matin:[],aprem:[]};
 
         ['matin','aprem'].forEach(slot=>{
@@ -651,7 +611,7 @@
         });
 
         return alerts;
-      },[rules,vets,unavail,openDays,resolveHoraire,publicHolidays]);
+      },[rules,vets,unavail,openDays,resolveHoraire]);
 
       const allAlerts   = useMemo(()=>{
         const res={};
@@ -668,7 +628,7 @@
         for (let d=1;d<=numDays;d++){
           const key=dk(year,month,d), dow=dowJS(year,month,d);
           if (!openDays[dow]){newP[key]=null;continue;}
-          const we=isWEOrHoliday(year,month,d,publicHolidays);
+          const we=isWE(dow);
           const dayU=unavail[key]||{matin:[],aprem:[]};
           const day={};
 
@@ -694,7 +654,7 @@
           newP[key]=day;
         }
         setPlanning(newP); setValidated(false);
-      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,publicHolidays]);
+      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire]);
 
       const updateSubSlot = useCallback((datekey, slot, horaireId, updater)=>{
         setPlanning(prev=>{
@@ -747,7 +707,6 @@
         {id:'equipe',  label:'Équipe',  icon:'👥'},
         {id:'regles',  label:'Règles',  icon:'⚙️'},
         {id:'stats',   label:'Statistiques', icon:'📊'},
-        {id:'holidays',label:'Jours fériés',icon:'🎉'},
         {id:'sync',    label:'Google Sync',icon:'🔗'},
       ];
 
@@ -820,9 +779,6 @@
               currentMonth={month} currentPlanning={planning} validated={validated}
               setYearlyData={setYearlyData}
               astreintes={astreintes}/>
-          )}
-          {tab==='holidays'&&(
-            <HolidaysTab year={year} publicHolidays={publicHolidays} setPublicHolidays={setPublicHolidays} fetchPublicHolidays={fetchPublicHolidays}/>
           )}
           {tab==='sync'&&(
             <SyncTab validated={validated} totalAlerts={totalAlerts} planning={planning}
@@ -995,7 +951,7 @@
                   const dp=planning[key];
                   const alerts=allAlerts[key]||[];
                   const today=new Date().toDateString()===new Date(year,month,day).toDateString();
-                  const we=isWEOrHoliday(year,month,day,publicHolidays);
+                  const we=isWE(dow);
                   const wn=isoWeek(year,month,day);
                   const wp=weekParity(year,month,day);
 
@@ -1031,7 +987,7 @@
                       )}
 
                       {/* Astreintes */}
-                      <AstrMini astrDay={astreintes[key]} vets={vets} we={we}/>
+                      <AstrMini astrDay={astreintes[key]} vets={vets} dow={dow}/>
 
                       {alerts.length>0&&<div className="cal-alert-dot">{alerts.length}</div>}
                     </div>
@@ -1083,8 +1039,9 @@
 
     // Mini affichage d'un slot dans la cellule
 
-    function AstrMini({astrDay,vets,we}){
+    function AstrMini({astrDay,vets,dow}){
       if(!astrDay||(!astrDay.midi&&!astrDay.soir)) return null;
+      const we=isWE(dow);
       const mV=vets.find(v=>v.id===astrDay.midi);
       const sV=vets.find(v=>v.id===astrDay.soir);
       return(
@@ -1695,94 +1652,6 @@
               </>}
               <button onClick={addRule} className="btn-teal">Ajouter</button>
             </div>
-          </div>
-        </div>
-      );
-    }
-
-    // ─── Onglet Jours fériés ──────────────────────────────────
-    function HolidaysTab({year,publicHolidays,setPublicHolidays,fetchPublicHolidays}){
-      const [loading, setLoading] = useState(false);
-      const currentYearHolidays = publicHolidays[year] || {};
-      
-      const handleRefresh = async () => {
-        setLoading(true);
-        const holidays = await fetchPublicHolidays(year);
-        if (Object.keys(holidays).length > 0) {
-          const updated = {...publicHolidays, [year]: holidays};
-          setPublicHolidays(updated);
-        }
-        setLoading(false);
-      };
-
-      const holidaysList = Object.entries(currentYearHolidays).sort(([dateA], [dateB]) => dateA.localeCompare(dateB));
-
-      return (
-        <div>
-          <div className="g-card" style={{marginBottom:24}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16}}>
-              <div>
-                <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:20,fontWeight:700,color:'#1f2937',marginBottom:4}}>
-                  Jours fériés français {year}
-                </h2>
-                <p style={{color:'#6b7280',fontSize:13}}>
-                  {holidaysList.length === 0 ? 'Aucun jour férié chargé' : `${holidaysList.length} jour(s) férié(s) chargé(s)`}
-                </p>
-              </div>
-              <button onClick={handleRefresh} disabled={loading} className="btn-teal">
-                {loading ? '⏳ Chargement…' : '🔄 Actualiser'}
-              </button>
-            </div>
-          </div>
-
-          {holidaysList.length > 0 ? (
-            <div className="g-card">
-              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-                <thead>
-                  <tr style={{background:'#f8fafc'}}>
-                    <th style={{padding:'10px 16px',textAlign:'left',fontWeight:600,color:'#6b7280',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em'}}>Date</th>
-                    <th style={{padding:'10px 16px',textAlign:'left',fontWeight:600,color:'#6b7280',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em'}}>Jour</th>
-                    <th style={{padding:'10px 16px',textAlign:'left',fontWeight:600,color:'#6b7280',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em'}}>Nom</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {holidaysList.map(([date, holiday], i) => {
-                    const d = new Date(date + 'T00:00:00');
-                    const dow = d.getDay();
-                    const dayName = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'][dow];
-                    return (
-                      <tr key={date} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
-                        <td style={{padding:'12px 16px',fontWeight:600,color:'#1f2937'}}>
-                          {new Date(date + 'T00:00:00').toLocaleDateString('fr-FR', {day:'numeric',month:'long',year:'numeric'})}
-                        </td>
-                        <td style={{padding:'12px 16px',color:'#6b7280'}}>
-                          {dayName}
-                        </td>
-                        <td style={{padding:'12px 16px',color:'#374151'}}>
-                          {holiday.name}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="g-card" style={{textAlign:'center',padding:40,background:'#f9fafb'}}>
-              <div style={{fontSize:40,marginBottom:12}}>📅</div>
-              <p style={{color:'#6b7280',marginBottom:8}}>Aucun jour férié chargé</p>
-              <p style={{color:'#9ca3af',fontSize:12}}>Cliquez sur "Actualiser" pour charger les jours fériés français depuis l'API externe.</p>
-            </div>
-          )}
-
-          <div className="g-card" style={{marginTop:24,background:'#eff6ff',borderColor:'#bfdbfe'}}>
-            <h3 style={{fontWeight:600,color:'#1e40af',marginBottom:8,display:'flex',alignItems:'center',gap:8}}>
-              ℹ️ Information
-            </h3>
-            <p style={{color:'#1e40af',fontSize:13,lineHeight:'1.6'}}>
-              Les jours fériés sont automatiquement chargés depuis l'API Nager.Date. 
-              Ils sont traités comme des dimanches dans la génération des astreintes (même horaires, mêmes règles de couverture minimale).
-            </p>
           </div>
         </div>
       );
