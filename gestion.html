@@ -957,7 +957,9 @@
 
                   return(
                     <div key={di} data-datekey={key}
-                      className={'cal-cell'+(closed?' closed':we?' we-day':'')}>
+                      className={'cal-cell'+(closed?' closed':we?' we-day':'')}
+                      onClick={(e)=>{ console.log('cell onClick', key, e.type); e.stopPropagation(); e.preventDefault(); setEditDay(key); }}
+                      role="button" tabIndex={0}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
