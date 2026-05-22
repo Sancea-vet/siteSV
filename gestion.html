@@ -172,28 +172,76 @@
       <div id="gestion-root"></div>
     </div>
   </div>
+  <div id="modal-portal"></div>
 
-  <script>
-    // Neutralise tout listener capture de main.js en bloquant sa propagation
-    // uniquement sur les cellules du calendrier et la modal
-    document.addEventListener('click', function(e) {
-      if (e.target.closest('.cal-cell') || e.target.closest('.modal-overlay') || e.target.closest('.modal-box')) {
-        e.stopImmediatePropagation();
-      }
-    }, true);
-  </script>
+
 
   <script type="text/babel">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
-    // ─── Persistance localStorage ──────────────────────────────
+    // ─── Persistance IndexedDB ─────────────────────────────────
+    const DB_NAME = 'sanceavet_db';
+    const DB_VERSION = 1;
+    const STORE = 'planning_store';
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
+        req.onsuccess = e => resolve(e.target.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    async function idbGet(key) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => resolve(null);
+      });
+    }
+    async function idbSet(key, val) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = resolve;
+        tx.onerror = resolve;
+      });
+    }
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const keys = [], vals = [];
+        store.openKeyCursor().onsuccess = e => {
+          const c = e.target.result;
+          if(c){ keys.push(c.key); c.continue(); }
+        };
+        store.openCursor().onsuccess = e => {
+          const c = e.target.result;
+          if(c){ vals.push([c.key, c.value]); c.continue(); }
+        };
+        tx.oncomplete = () => resolve(Object.fromEntries(vals));
+        tx.onerror = () => resolve({});
+      });
+    }
+    async function idbClear() {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = resolve;
+      });
+    }
+
+    // Fallback localStorage pour init synchrone
     const LS_KEY = 'sanceavet_v2';
     function lsLoad(key, fallback) {
       try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback; }
       catch(e) { return fallback; }
-    }
-    function lsSave(key, val) {
-      try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) {}
     }
 
     // ─── Constantes ────────────────────────────────────────────
@@ -290,48 +338,105 @@
     function App() {
       const now = new Date();
       const [tab,   setTab]   = useState('planning');
-      const [year,  setYear]  = useState(()=>lsLoad(LS_KEY+'_nav', {year:now.getFullYear(),month:now.getMonth()}).year);
-      const [month, setMonth] = useState(()=>lsLoad(LS_KEY+'_nav', {year:now.getFullYear(),month:now.getMonth()}).month);
+      const [year,  setYear]  = useState(now.getFullYear());
+      const [month, setMonth] = useState(now.getMonth());
 
-      const [vets,      setVets]      = useState(()=>lsLoad(LS_KEY+'_vets',      DEFAULT_VETS));
-      const [rules,     setRules]     = useState(()=>lsLoad(LS_KEY+'_rules',     DEFAULT_RULES));
-      const [openDays,  setOpenDays]  = useState(()=>lsLoad(LS_KEY+'_opendays',  [false,true,true,true,true,true,true]));
-      const [planning,  setPlanning]  = useState(()=>lsLoad(LS_KEY+'_planning',  {}));
-      const [unavail,   setUnavail]   = useState(()=>lsLoad(LS_KEY+'_unavail',   {}));
-      const [validated, setValidated] = useState(()=>lsLoad(LS_KEY+'_validated', false));
-      const [yearlyData,setYearlyData]= useState(()=>lsLoad(LS_KEY+'_yearly',    {}));
-      // astreintes[dk] = { midi: vetId|null, soir: vetId|null }
-      const [astreintes, setAstreintes] = useState(()=>lsLoad(LS_KEY+'_astr', {}));
+      const [vets,      setVets]      = useState(DEFAULT_VETS);
+      const [rules,     setRules]     = useState(DEFAULT_RULES);
+      const [openDays,  setOpenDays]  = useState([false,true,true,true,true,true,true]);
+      const [planning,  setPlanning]  = useState({});
+      const [unavail,   setUnavail]   = useState({});
+      const [validated, setValidated] = useState(false);
+      const [yearlyData,setYearlyData]= useState({});
+      const [astreintes,setAstreintes]= useState({});
       const [editDay,   setEditDay]   = useState(null);
-      const [gclientId, setGclientId] = useState(()=>lsLoad(LS_KEY+'_gclient',  ''));
-      const [calId,     setCalId]     = useState(()=>lsLoad(LS_KEY+'_calid',    'primary'));
+      const [gclientId, setGclientId] = useState('');
+      const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
+      const [loaded,    setLoaded]    = useState(false);
 
-      // ── Auto-save ─────────────────────────────────────────────
-      // Debounce : on sauvegarde 800ms après le dernier changement
-      const saveTimer = React.useRef(null);
+      // ── Chargement IndexedDB au démarrage ─────────────────────
+      useEffect(()=>{
+        (async()=>{
+          const d = await idbGetAll();
+          if(d.vets)       setVets(d.vets);
+          if(d.rules)      setRules(d.rules);
+          if(d.openDays)   setOpenDays(d.openDays);
+          if(d.planning)   setPlanning(d.planning);
+          if(d.unavail)    setUnavail(d.unavail);
+          if(d.validated !== undefined) setValidated(d.validated);
+          if(d.yearlyData) setYearlyData(d.yearlyData);
+          if(d.astreintes) setAstreintes(d.astreintes);
+          if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
+          if(d.gclientId)  setGclientId(d.gclientId);
+          if(d.calId)      setCalId(d.calId);
+          setLoaded(true);
+        })();
+      },[]);
+
+      // ── Auto-save IndexedDB ───────────────────────────────────
+      const saveTimer = useRef(null);
       const triggerSave = useCallback((data) => {
+        if(!data.loaded) return;
         clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(() => {
-          lsSave(LS_KEY+'_vets',      data.vets);
-          lsSave(LS_KEY+'_rules',     data.rules);
-          lsSave(LS_KEY+'_opendays',  data.openDays);
-          lsSave(LS_KEY+'_planning',  data.planning);
-          lsSave(LS_KEY+'_unavail',   data.unavail);
-          lsSave(LS_KEY+'_validated', data.validated);
-          lsSave(LS_KEY+'_yearly',    data.yearlyData);
-          lsSave(LS_KEY+'_astr',      data.astreintes);
-          lsSave(LS_KEY+'_nav',       {year:data.year, month:data.month});
-          lsSave(LS_KEY+'_gclient',   data.gclientId);
-          lsSave(LS_KEY+'_calid',     data.calId);
+        saveTimer.current = setTimeout(async () => {
+          await idbSet('vets',      data.vets);
+          await idbSet('rules',     data.rules);
+          await idbSet('openDays',  data.openDays);
+          await idbSet('planning',  data.planning);
+          await idbSet('unavail',   data.unavail);
+          await idbSet('validated', data.validated);
+          await idbSet('yearlyData',data.yearlyData);
+          await idbSet('astreintes',data.astreintes);
+          await idbSet('nav',       {year:data.year, month:data.month});
+          await idbSet('gclientId', data.gclientId);
+          await idbSet('calId',     data.calId);
           setSaveFlash(true);
           setTimeout(()=>setSaveFlash(false), 1800);
         }, 800);
       }, []);
 
       useEffect(()=>{
-        triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId]);
+        if(loaded)
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded]);
+
+      // ── Export / Import JSON ──────────────────────────────────
+      const exportJSON = useCallback(()=>{
+        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId};
+        const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
+        URL.revokeObjectURL(url);
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId]);
+
+      const importJSON = useCallback(()=>{
+        const input = document.createElement('input');
+        input.type='file'; input.accept='.json';
+        input.onchange = e => {
+          const file = e.target.files[0]; if(!file) return;
+          const reader = new FileReader();
+          reader.onload = async ev => {
+            try {
+              const d = JSON.parse(ev.target.result);
+              if(d.vets)       setVets(d.vets);
+              if(d.rules)      setRules(d.rules);
+              if(d.openDays)   setOpenDays(d.openDays);
+              if(d.planning)   setPlanning(d.planning);
+              if(d.unavail)    setUnavail(d.unavail);
+              if(d.validated !== undefined) setValidated(d.validated);
+              if(d.yearlyData) setYearlyData(d.yearlyData);
+              if(d.astreintes) setAstreintes(d.astreintes);
+              if(d.gclientId)  setGclientId(d.gclientId);
+              if(d.calId)      setCalId(d.calId);
+              alert('✅ Import réussi !');
+            } catch(err){ alert('❌ Fichier JSON invalide'); }
+          };
+          reader.readAsText(file);
+        };
+        input.click();
+      },[]);
 
 
       // ── Génération des astreintes ──────────────────────────────
@@ -591,11 +696,15 @@
                   ✓ Sauvegardé
                 </span>
               )}
+              <button onClick={exportJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#0d9488',borderColor:'#99f6e4'}}>
+                ⬇ Exporter
+              </button>
+              <button onClick={importJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#7c3aed',borderColor:'#c4b5fd'}}>
+                ⬆ Importer
+              </button>
               <button onClick={()=>{
                 if(!confirm('Réinitialiser toutes les données ? Cette action est irréversible.')) return;
-                ['_vets','_rules','_opendays','_planning','_unavail','_validated','_yearly','_nav','_gclient','_calid']
-                  .forEach(k=>localStorage.removeItem(LS_KEY+k));
-                window.location.reload();
+                idbClear().then(()=>window.location.reload());
               }} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#ef4444',borderColor:'#fecaca'}}>
                 🗑 Réinitialiser
               </button>
@@ -655,7 +764,7 @@
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               astreintes={astreintes} setAstreintes={setAstreintes}
               onClose={()=>setEditDay(null)}/>,
-            document.body
+            document.getElementById('modal-portal')
           )}
         </div>
       );
@@ -667,6 +776,23 @@
       const [uVet,   setUVet]   = useState('');
       const [uDay,   setUDay]   = useState('');
       const [uSlot,  setUSlot]  = useState('matin');
+      const gridRef = useRef(null);
+
+      // Listener natif direct — contourne la délégation d'événements React 18
+      // et tout intercepteur externe (main.js, styles.css transform, etc.)
+      useEffect(()=>{
+        const grid = gridRef.current;
+        if(!grid) return;
+        const handler = (e) => {
+          const cell = e.target.closest('[data-datekey]');
+          if(cell) {
+            e.stopImmediatePropagation();
+            setEditDay(cell.dataset.datekey);
+          }
+        };
+        grid.addEventListener('click', handler, {capture:false});
+        return ()=>grid.removeEventListener('click', handler, {capture:false});
+      },[setEditDay]);
 
       const pfxCur = `${year}-${String(month+1).padStart(2,'0')}-`;
       const totalU=Object.values(unavail).reduce((s,d)=>s+(d.matin||[]).length+(d.aprem||[]).length,0);
@@ -768,7 +894,7 @@
           )}
 
           {/* Grille */}
-          <div className="cal-grid">
+          <div className="cal-grid" ref={gridRef}>
             <div className="cal-header-row">
               {JOURS.map((j,i)=><div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>)}
             </div>
@@ -787,8 +913,8 @@
                   const wp=weekParity(year,month,day);
 
                   return(
-                    <div key={di} className={'cal-cell'+(closed?' closed':we?' we-day':'')}
-                      onClick={()=>setEditDay(key)}>
+                    <div key={di} data-datekey={key}
+                      className={'cal-cell'+(closed?' closed':we?' we-day':'')}>
                       {/* Numéro + badge semaine */}
                       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
                         <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
