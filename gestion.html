@@ -567,18 +567,61 @@
         }
 
         // ── 4. Constituer les unités d'astreinte ──────────────────────
-        // Règle : si le bloc contient un JF, la veille ouvrée est incluse dans le bloc
-        // (= même véto fait la veille ET le JF → "bloc veille+JF")
+        // Règles :
+        //  • JF quelconque : la veille ouvrée est incluse dans le même bloc (même véto)
+        //  • JF un lundi   : même véto pour Sam + Dim + Lun (grand WE)
+        //  • JF un samedi  : même véto pour Ven + Sam + Dim (grand WE)
+        //  Ces cas sont naturellement couverts par le regroupement des jours fermés
+        //  consécutifs + ajout de la veille ouvrée.
+        //  Cas particulier cross-mois : JF lundi = jour 1 du mois
+        //    → le Sam/Dim précédents sont dans le mois précédent ; on les pré-pend ici.
         const astreintUnits=[]; // {days:[...numéros], type:'weJf'}
         const eveAssigned=new Set();
 
         closedBlocs.forEach(bloc=>{
           const firstDay=bloc.days[0];
           if(bloc.hasHoliday){
+            // ── Cas standard : chercher la veille dans le mois courant ──
             const eveDay=firstDay-1;
             if(eveDay>=1&&dayInfo[eveDay]&&dayInfo[eveDay].isOpen){
               eveAssigned.add(eveDay);
               astreintUnits.push({days:[eveDay,...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay});
+            } else if(firstDay===1){
+              // ── Cas cross-mois : premier jour du mois est un JF (ou suivi d'un JF lundi)
+              //    Reconstituer le grand WE depuis le mois précédent
+              const prevMonthDate = new Date(year, month, 0); // dernier jour du mois précédent
+              const prevMonthLastDay = prevMonthDate.getDate();
+              const prevMonth = prevMonthDate.getMonth();
+              const prevYear  = prevMonthDate.getFullYear();
+              const prevHols  = getFrenchHolidays(prevYear);
+              // Chercher combien de jours WE/JF précèdent (remonte jusqu'à vendredi inclus)
+              const extraDays=[]; // jours négatifs ou à représenter comme "avant mois"
+              let pd=prevMonthLastDay;
+              while(pd>=1){
+                const pDate=new Date(prevYear,prevMonth,pd);
+                const pDow=pDate.getDay();
+                const pKey=dk_(prevYear,prevMonth,pd);
+                if(isWE(pDow)||prevHols.has(pKey)){
+                  extraDays.unshift({prevYear,prevMonth,pd,pKey,pDow});
+                  pd--;
+                } else {
+                  // Jour ouvré : c'est la veille potentielle
+                  const prevOpenKey=dk_(prevYear,prevMonth,pd);
+                  eveAssigned.add('prev:'+prevOpenKey);
+                  extraDays.unshift({prevYear,prevMonth,pd,pKey:prevOpenKey,pDow,isEve:true});
+                  break;
+                }
+              }
+              if(extraDays.length>0){
+                // Stocker les infos pour l'assignation (on marque les jours hors-mois avec offset négatif)
+                astreintUnits.push({
+                  days:[...bloc.days],
+                  prevDays:extraDays, // jours du mois précédent
+                  hasHoliday:true, hasWE:true, eveDay:null, crossMonth:true
+                });
+              } else {
+                astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
+              }
             } else {
               astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
             }
@@ -609,6 +652,7 @@
           const chosen=elig[0]?.id||null;
           if(chosen) load[chosen].weJf++;
 
+          // Jours dans le mois courant
           unit.days.forEach(d=>{
             if(d<1||d>numDays) return;
             const key=dayInfo[d].key;
@@ -616,6 +660,14 @@
             if(chosen) load[chosen].total++;
             assignedDays.add(d);
           });
+
+          // Jours cross-mois (grand WE dans le mois précédent)
+          if(unit.crossMonth && unit.prevDays){
+            unit.prevDays.forEach(({pKey})=>{
+              newA[pKey]={midi:chosen,soir:chosen};
+              if(chosen) load[chosen].total++;
+            });
+          }
         });
 
         // ── 6. Jours de semaine restants (règle anti-consécutif) ──────
@@ -758,6 +810,8 @@
           const we=isWE(dow);
           const dayU=unavail[key]||{matin:[],aprem:[]};
           const day={};
+          // Mémorise qui est affecté le matin pour privilégier les journées entières
+          const matinAssigned=[];
 
           ['matin','aprem'].forEach(slot=>{
             const horaireA = slot==='matin' ? 'matin_A' : 'aprem_A';
@@ -765,11 +819,28 @@
             const uSet=new Set(dayU[slot]||[]);
             const exclSet=new Set(rules.filter(r=>r.type==='never_slot'&&(r.slot===slot||r.slot==='all')&&r.dayOfWeek===dow&&parityMatch(r.weekParity,year,month,d)).map(r=>r.vetId));
             const elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
-            elig.sort((a,b)=>wl[a.id]-wl[b.id]);
             const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&(r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)));
             const need=minR?minR.min:1;
-            const asgn=elig.slice(0,need);
-            // répartir les vétérinaires demandés sur les sous-créneaux (A/B)
+
+            let asgn;
+            if(slot==='aprem' && matinAssigned.length>0){
+              // ── Privilégier les journées entières ──────────────────────
+              // 1) Vétérinaires déjà en matin ET éligibles cet après-midi (= journée entière)
+              const fullDayElig = elig.filter(v=>matinAssigned.includes(v.id));
+              // 2) Les autres, triés par charge croissante
+              const othersElig  = elig.filter(v=>!matinAssigned.includes(v.id));
+              fullDayElig.sort((a,b)=>wl[a.id]-wl[b.id]);
+              othersElig.sort((a,b)=>wl[a.id]-wl[b.id]);
+              // Combler d'abord avec les vétérinaires du matin, puis compléter si besoin
+              asgn = [...fullDayElig, ...othersElig].slice(0, need);
+            } else {
+              elig.sort((a,b)=>wl[a.id]-wl[b.id]);
+              asgn=elig.slice(0,need);
+            }
+
+            if(slot==='matin') matinAssigned.push(...asgn.map(v=>v.id));
+
+            // Répartir les vétérinaires sur les sous-créneaux (A/B)
             const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
             asgn.forEach((v, idx)=>{
               const target = slotArrTemplate[idx % slotArrTemplate.length];
@@ -844,7 +915,7 @@
               <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:'#1f2937',marginBottom:4}}>
                 Planning vétérinaire
               </h1>
-              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · semaines paires/impaires · jours fériés automatiques · sauvegarde automatique</p>
+              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · journées entières privilégiées · jours fériés avec veille · grand WE automatique · sauvegarde automatique</p>
             </div>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               {saveFlash&&(
