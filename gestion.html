@@ -789,6 +789,18 @@
           });
         });
 
+        // Vérif règles finish_17h (fin à 17h)
+          const finish17hRules=rules.filter(r=>r.type==='finish_17h'&&r.dayOfWeek===dow&&parityMatch(r.weekParity,y,m,d));
+          finish17hRules.forEach(r=>{
+            const apremArr=toSlotArr(dayPlanning.aprem);
+            const isOnB=apremArr.some(sub=>sub.horaire==='aprem_B'&&(sub.vets||[]).includes(r.vetId));
+            const isOnA=apremArr.some(sub=>sub.horaire==='aprem_A'&&(sub.vets||[]).includes(r.vetId));
+            if(isOnB&&!isOnA){
+              const v=vets.find(x=>x.id===r.vetId);
+              alerts.push({level:'warn',slot:'aprem',msg:`${v?v.name:'?'} devrait finir à 17h ce jour (règle fin 17h)`});
+            }
+          });
+
         return alerts;
       },[rules,vets,unavail,openDays,resolveHoraire,holidays]);
 
@@ -804,6 +816,25 @@
       const generate = useCallback(()=>{
         const newP={};
         const wl=Object.fromEntries(vets.map(v=>[v.id,0]));
+
+        // ── Charge cumulée aprem_A (fin 17h) depuis données annuelles validées ──
+        // Permet d'équilibrer les fins à 17h sur toute l'année
+        const apremALoad=Object.fromEntries(vets.map(v=>[v.id,0]));
+        Object.entries(yearlyData).forEach(([yr,months])=>{
+          Object.entries(months).forEach(([mIdx,{planning:p}])=>{
+            if(!p) return;
+            if(+yr===year && +mIdx>=month) return; // ne compter que les mois passés
+            Object.values(p).forEach(dp=>{
+              if(!dp) return;
+              toSlotArr(dp.aprem).forEach(sub=>{
+                if(sub.horaire==='aprem_A') (sub.vets||[]).forEach(vid=>{
+                  if(apremALoad[vid]!==undefined) apremALoad[vid]++;
+                });
+              });
+            });
+          });
+        });
+
         for (let d=1;d<=numDays;d++){
           const key=dk(year,month,d), dow=dowJS(year,month,d);
           if (!openDays[dow] || holidays.has(key)){newP[key]=null;continue;}
@@ -824,14 +855,11 @@
 
             let asgn;
             if(slot==='aprem' && matinAssigned.length>0){
-              // ── Privilégier les journées entières ──────────────────────
-              // 1) Vétérinaires déjà en matin ET éligibles cet après-midi (= journée entière)
+              // ── Journées entières prioritaires ─────────────────────────
               const fullDayElig = elig.filter(v=>matinAssigned.includes(v.id));
-              // 2) Les autres, triés par charge croissante
               const othersElig  = elig.filter(v=>!matinAssigned.includes(v.id));
               fullDayElig.sort((a,b)=>wl[a.id]-wl[b.id]);
               othersElig.sort((a,b)=>wl[a.id]-wl[b.id]);
-              // Combler d'abord avec les vétérinaires du matin, puis compléter si besoin
               asgn = [...fullDayElig, ...othersElig].slice(0, need);
             } else {
               elig.sort((a,b)=>wl[a.id]-wl[b.id]);
@@ -840,19 +868,48 @@
 
             if(slot==='matin') matinAssigned.push(...asgn.map(v=>v.id));
 
-            // Répartir les vétérinaires sur les sous-créneaux (A/B)
             const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
-            asgn.forEach((v, idx)=>{
-              const target = slotArrTemplate[idx % slotArrTemplate.length];
-              target.vets.push(v.id);
-              wl[v.id]++;
-            });
+
+            if(slot==='aprem'){
+              // ── Règles finish_17h + équilibrage des fins à 17h ─────────
+              // 1. Vétérinaires avec règle "finit à 17h ce jour-là" → forcés sur aprem_A
+              const finish17hSet = new Set(
+                rules.filter(r=>
+                  r.type==='finish_17h' &&
+                  r.dayOfWeek===dow &&
+                  parityMatch(r.weekParity,year,month,d)
+                ).map(r=>r.vetId)
+              );
+              const forced = asgn.filter(v=>finish17hSet.has(v.id));
+              // 2. Les autres : triés par count aprem_A croissant → qui en a le moins prend aprem_A
+              const free   = asgn.filter(v=>!finish17hSet.has(v.id));
+              free.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
+
+              forced.forEach(v=>{
+                slotArrTemplate[0].vets.push(v.id); // aprem_A (13h–17h)
+                wl[v.id]++;
+                apremALoad[v.id]=(apremALoad[v.id]||0)+1;
+              });
+              free.forEach((v,idx)=>{
+                const target=slotArrTemplate[idx%2];
+                target.vets.push(v.id);
+                wl[v.id]++;
+                if(target.horaire==='aprem_A') apremALoad[v.id]=(apremALoad[v.id]||0)+1;
+              });
+            } else {
+              asgn.forEach((v,idx)=>{
+                const target=slotArrTemplate[idx%slotArrTemplate.length];
+                target.vets.push(v.id);
+                wl[v.id]++;
+              });
+            }
+
             day[slot]=slotArrTemplate;
           });
           newP[key]=day;
         }
         setPlanning(newP); setValidated(false);
-      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays]);
+      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays,yearlyData]);
 
       const updateSubSlot = useCallback((datekey, slot, horaireId, updater)=>{
         setPlanning(prev=>{
@@ -1701,6 +1758,8 @@
       const [vetId,  setVetId]  = useState('');
       const [dow,    setDow]    = useState(1);
       const [horaire,setHoraire]= useState('matin_A');
+      const [dow17,  setDow17]  = useState(1);   // jour pour finish_17h
+      const [vet17,  setVet17]  = useState('');  // véto pour finish_17h
 
       const JOURS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
@@ -1718,6 +1777,10 @@
           if(prev.some(r=>r.type==='never_slot'&&r.vetId===vetId&&r.slot===slot&&r.dayOfWeek===+dow&&r.weekParity===parity)) return prev;
           return [...prev,{...base,vetId,dayOfWeek:+dow}];
         });
+        else if(rType==='finish_17h'&&vet17) setRules(prev=>{
+          if(prev.some(r=>r.type==='finish_17h'&&r.vetId===vet17&&r.dayOfWeek===+dow17&&r.weekParity===parity)) return prev;
+          return [...prev,{id:uid(),type:'finish_17h',vetId:vet17,dayOfWeek:+dow17,weekParity:parity}];
+        });
       };
 
       const pLabel=p=>p==='even'?'Paire':p==='odd'?'Impaire':'Toutes';
@@ -1728,6 +1791,7 @@
         if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — S. {pl}</span>;
         if(r.type==='horaire_rule'){const h=HORAIRES[r.horaire];return <span>🕐 {sl} → {h?h.label:'?'} — S. {pl}</span>;}
         if(r.type==='never_slot'){const v=vets.find(x=>x.id===r.vetId);return <span>🚫 {v?v.name:'?'} — jamais {sl} le {JS_FULL[r.dayOfWeek]} S. {pl}</span>;}
+        if(r.type==='finish_17h'){const v=vets.find(x=>x.id===r.vetId);return <span>🕔 <strong>{v?v.name:'?'}</strong> — finit à <strong>17h</strong> le {JS_FULL[r.dayOfWeek]} — S. {pl}</span>;}
         return <span>{r.type}</span>;
       };
 
@@ -1807,6 +1871,25 @@
             </div>
           </div>
 
+          {/* Règles fin à 17h */}
+          <div className="g-card" style={{marginBottom:16,border:'1.5px solid #fde68a',background:'#fffbeb'}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:4,color:'#92400e',textTransform:'uppercase',letterSpacing:'.06em'}}>
+              🕔 Fins à 17h (aprem_A obligatoire)
+            </h3>
+            <p style={{fontSize:12,color:'#a16207',marginBottom:10,lineHeight:1.5}}>
+              Force un vétérinaire à prendre le créneau 13h–17h un jour donné. La génération équilibre aussi automatiquement les fins à 17h entre tous les vétérinaires sur l'année.
+            </p>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {byType('finish_17h').map(r=>(
+                <div key={r.id} className="rule-row" style={{background:'#fff'}}>
+                  <span style={{flex:1,fontSize:13}}>{labelOf(r)}</span>
+                  <button onClick={()=>setRules(p=>p.filter(x=>x.id!==r.id))} className="btn-danger-soft">Suppr.</button>
+                </div>
+              ))}
+              {byType('finish_17h').length===0&&<p style={{fontSize:12,color:'#9ca3af'}}>Aucune règle de fin à 17h — la génération équilibre les fins à 17h automatiquement</p>}
+            </div>
+          </div>
+
           {/* Ajouter une règle */}
           <div className="g-card">
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:16,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Ajouter une règle</h3>
@@ -1817,8 +1900,10 @@
                   <option value="min_per_slot">Couverture minimale</option>
                   <option value="horaire_rule">Horaire par parité</option>
                   <option value="never_slot">Exclusion créneau</option>
+                  <option value="finish_17h">Fin à 17h obligatoire</option>
                 </select>
               </div>
+              {rType!=='finish_17h'&&(
               <div>
                 <span className="g-label">Créneau</span>
                 <select value={slot} onChange={e=>setSlot(e.target.value)} className="g-input">
@@ -1827,6 +1912,8 @@
                   {rType==='never_slot'&&<option value="all">Les deux</option>}
                 </select>
               </div>
+              )}
+              {rType!=='finish_17h'&&(
               <div>
                 <span className="g-label">Semaine</span>
                 <select value={parity} onChange={e=>setParity(e.target.value)} className="g-input">
@@ -1835,6 +1922,7 @@
                   <option value="odd">Impaire</option>
                 </select>
               </div>
+              )}
               {rType==='min_per_slot'&&<>
                 <div>
                   <span className="g-label">Jours</span>
@@ -1880,6 +1968,29 @@
                   <span className="g-label">Jour exclu</span>
                   <select value={dow} onChange={e=>setDow(e.target.value)} className="g-input">
                     {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+              </>}
+              {rType==='finish_17h'&&<>
+                <div>
+                  <span className="g-label">Vétérinaire</span>
+                  <select value={vet17} onChange={e=>setVet17(e.target.value)} className="g-input">
+                    <option value="">Choisir…</option>
+                    {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className="g-label">Jour</span>
+                  <select value={dow17} onChange={e=>setDow17(e.target.value)} className="g-input">
+                    {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className="g-label">Semaine</span>
+                  <select value={parity} onChange={e=>setParity(e.target.value)} className="g-input">
+                    <option value="all">Toutes</option>
+                    <option value="even">Paire</option>
+                    <option value="odd">Impaire</option>
                   </select>
                 </div>
               </>}
@@ -1972,6 +2083,7 @@
           matin:0,aprem:0,
           matinH:{matin_A:0,matin_B:0},
           apremH:{aprem_A:0,aprem_B:0},
+          fin17h:0,   // nombre de fois en aprem_A (fin 17h)
           astrDays:0,
           astrBlocsWEJF:0,
           days:new Set()
@@ -2017,6 +2129,7 @@
                   counts[vid].days.add(dk);
                   if(slot==='matin'  && counts[vid].matinH[subSlot.horaire]!==undefined) counts[vid].matinH[subSlot.horaire]++;
                   if(slot==='aprem'  && counts[vid].apremH[subSlot.horaire]!==undefined) counts[vid].apremH[subSlot.horaire]++;
+                  if(slot==='aprem'  && subSlot.horaire==='aprem_A') counts[vid].fin17h++;
                 });
               });
             });
@@ -2135,6 +2248,7 @@
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Équiv. jours</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#7c3aed',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#f5f3ff',whiteSpace:'nowrap'}}>🌙 Nuits semaine</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#b45309',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef3c7',whiteSpace:'nowrap'}}>🗓 Blocs WE/JF</th>
+                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#a16207',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef9ec',whiteSpace:'nowrap'}}>🕔 Fins 17h</th>
                         <th style={{padding:'10px 20px',textAlign:'left',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Répartition</th>
                       </tr>
                     </thead>
@@ -2181,6 +2295,9 @@
                             <td style={{padding:'12px',textAlign:'center',background:'#fef3c744'}}>
                               <span style={{fontWeight:700,color:'#b45309',fontSize:15}}>{d.astrBlocsWEJF||0}</span>
                             </td>
+                            <td style={{padding:'12px',textAlign:'center',background:'#fef9ec44'}}>
+                              <span style={{fontWeight:700,color:'#a16207',fontSize:15}}>{d.fin17h||0}</span>
+                            </td>
                             <td style={{padding:'12px 20px'}}>
                               <div style={{display:'flex',gap:2,alignItems:'center'}}>
                                 {/* Barre matin */}
@@ -2225,12 +2342,16 @@
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#b45309',background:'#fef3c744'}}>
                           {vets.reduce((s,v)=>s+(data[v.id]?.astrBlocsWEJF||0),0)}
                         </td>
+                        <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#a16207',background:'#fef9ec44'}}>
+                          {vets.reduce((s,v)=>s+(data[v.id]?.fin17h||0),0)}
+                        </td>
                         <td style={{padding:'10px 20px'}}>
                           <div style={{display:'flex',gap:10,fontSize:11,color:'#6b7280',flexWrap:'wrap'}}>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#f59e0b',borderRadius:2,display:'inline-block'}}/>Matin</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#8b5cf6',borderRadius:2,display:'inline-block'}}/>Après-midi</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#7c3aed',borderRadius:2,display:'inline-block'}}/>Nuits sem.</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#b45309',borderRadius:2,display:'inline-block'}}/>Blocs WE/JF</span>
+                            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#a16207',borderRadius:2,display:'inline-block'}}/>Fins 17h</span>
                           </div>
                         </td>
                       </tr>
