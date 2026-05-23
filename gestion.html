@@ -500,114 +500,173 @@
       // ── Génération des astreintes ──────────────────────────────
       const generateAstreintes = useCallback(()=>{
         const newA = {};
-        // Charge cumulée (depuis yearlyData + mois courant)
-        const load = Object.fromEntries(vets.map(v=>[v.id,{midi:0,soir:0}]));
-        Object.values(yearlyData).forEach(yr=>Object.values(yr).forEach(({planning:p,astreintes:a})=>{
-          if(!a) return;
-          Object.values(a).forEach(({midi,soir})=>{
-            if(midi&&load[midi]) load[midi].midi++;
-            if(soir&&load[soir]) load[soir].soir++;
-          });
-        }));
-
-        const sortByLoad = (slot) => [...vets].sort((a,b)=>{
-          const la=(load[a.id]?.midi||0)+(load[a.id]?.soir||0);
-          const lb=(load[b.id]?.midi||0)+(load[b.id]?.soir||0);
-          return la-lb;
-        });
-
-        // Qui travaille ce jour ? (planning)
-        const worksDay   = (dk) => {
-          const dp=planning[dk]; if(!dp) return [];
-          const matinVets = toSlotArr(dp.matin).flatMap(s=>s.vets||[]);
-          const apremVets = toSlotArr(dp.aprem).flatMap(s=>s.vets||[]);
-          return [...new Set([...matinVets,...apremVets])];
-        };
-        const works1830  = (dk) => {
-          const dp=planning[dk]; if(!dp) return [];
-          const apremArr = toSlotArr(dp.aprem);
-          const b = apremArr.find(s=>s.horaire==='aprem_B');
-          return b ? (b.vets||[]) : [];
-        };
-        const worksNextDay = (dk) => {
-          const p=dk.split('-'); const d=new Date(+p[0],+p[1]-1,+p[2]);
-          d.setDate(d.getDate()+1);
-          const nk=dk_(d.getFullYear(),d.getMonth(),d.getDate());
-          return worksDay(nk);
-        };
         const dk_ = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
-        // Eligible : exclure indispos, puis prioriser 18h30 + lendemain travaillé
-        const eligible = (key, slot) => {
-          const dayU = (unavail[key]||{})[slot]||[];
-          const allU = [...((unavail[key]||{}).midi||[]),...((unavail[key]||{}).soir||[]),...dayU];
-          const elig = vets.filter(v=>!allU.includes(v.id));
-          const w1830 = works1830(key);
-          const wNext  = worksNextDay(key);
-          // Score: 18h30=+2, lendemain=+1
-          return [...elig].sort((a,b)=>{
-            const sa=(w1830.includes(a.id)?2:0)+(wNext.includes(a.id)?1:0)-(load[a.id]?.midi||0)-(load[a.id]?.soir||0)*0.5;
-            const sb=(w1830.includes(b.id)?2:0)+(wNext.includes(b.id)?1:0)-(load[b.id]?.midi||0)-(load[b.id]?.soir||0)*0.5;
-            return sb-sa;
+        // ── 1. Charge cumulée depuis yearlyData ────────────────────────
+        // load.total  = nb de jours d'astreinte (toutes natures)
+        // load.weJf   = nb de blocs WE/JF (chaque bloc WE = 1 ; chaque bloc JF = 1)
+        const load = Object.fromEntries(vets.map(v=>[v.id,{total:0,weJf:0}]));
+
+        Object.entries(yearlyData).forEach(([yr, months])=>{
+          const yHols = getFrenchHolidays(parseInt(yr));
+          Object.values(months).forEach(({astreintes:a})=>{
+            if(!a) return;
+            // Charge totale
+            Object.entries(a).forEach(([key,{midi}])=>{
+              if(midi&&load[midi]) load[midi].total++;
+            });
+            // Blocs WE/JF : compter chaque "début de bloc fermé" (non précédé d'un autre jour fermé)
+            Object.keys(a).sort().forEach(key=>{
+              const [ky,km,kd]=key.split('-').map(Number);
+              const dow2=new Date(ky,km-1,kd).getDay();
+              const isHol2=yHols.has(key);
+              if(!isWE(dow2)&&!isHol2) return; // jour ouvré classique
+              const prev=new Date(ky,km-1,kd-1);
+              const prevKey=dk_(prev.getFullYear(),prev.getMonth(),prev.getDate());
+              const prevDow=prev.getDay();
+              const prevClosed=isWE(prevDow)||yHols.has(prevKey);
+              if(!prevClosed){ // premier jour du bloc
+                const vid=a[key]?.midi;
+                if(vid&&load[vid]) load[vid].weJf++;
+              }
+            });
           });
+        });
+
+        // ── 2. Info sur chaque jour du mois ───────────────────────────
+        const dayInfo={};
+        for(let d=1;d<=numDays;d++){
+          const key=dk_(year,month,d);
+          const dow=dowJS(year,month,d);
+          const isHol=holidays.has(key);
+          const isClosed=isWE(dow)||isHol;
+          const isOpen=!isClosed&&!!openDays[dow];
+          dayInfo[d]={key,dow,isClosed,isHoliday:isHol,isOpen};
+        }
+
+        const isUnavailOn=(vetId,key)=>{
+          const u=unavail[key]||{};
+          return (u.midi||[]).includes(vetId)||(u.soir||[]).includes(vetId)||
+                 (u.matin||[]).includes(vetId)||(u.aprem||[]).includes(vetId);
         };
 
-        // Identifier le veto de week-end pour ne pas lui donner le vendredi soir
-        let weVet = null;
-
-        // Passe 1 : week-end (bloc sam midi → lun réouverture)
-        for(let d=1;d<=numDays;d++){
-          const dow=dowJS(year,month,d);
-          if(dow!==6) continue; // Samedi
-          const satKey=dk_(year,month,d);
-          // Trouver dimanche
-          const sunDate=new Date(year,month,d); sunDate.setDate(d+1);
-          const sunKey=dk_(sunDate.getFullYear(),sunDate.getMonth(),sunDate.getDate());
-
-          const elig=eligible(satKey,'soir');
-          const chosen=elig[0]?.id||null;
-          weVet=chosen;
-
-          newA[satKey]={midi:chosen, soir:chosen};
-          newA[sunKey]={midi:chosen, soir:chosen};
-          if(chosen){ load[chosen].midi+=2; load[chosen].soir+=2; }
+        // ── 3. Construire les blocs de jours fermés consécutifs ───────
+        const closedBlocs=[];
+        let ci=1;
+        while(ci<=numDays){
+          if(dayInfo[ci].isClosed){
+            const bloc={days:[],hasHoliday:false,hasWE:false};
+            while(ci<=numDays&&dayInfo[ci].isClosed){
+              bloc.days.push(ci);
+              if(dayInfo[ci].isHoliday) bloc.hasHoliday=true;
+              if(!dayInfo[ci].isHoliday) bloc.hasWE=true; // Sam ou Dim
+              ci++;
+            }
+            closedBlocs.push(bloc);
+          } else { ci++; }
         }
 
-        // Passe 1.5 : jours fériés tombant en semaine (traités comme dimanches)
-        for(let d=1;d<=numDays;d++){
-          const dow=dowJS(year,month,d);
-          if(isWE(dow)) continue; // déjà couverts par la passe 1
-          const key=dk_(year,month,d);
-          if(!holidays.has(key)) continue;
-          if(newA[key]) continue; // déjà assigné
-          const elig=eligible(key,'soir');
+        // ── 4. Constituer les unités d'astreinte ──────────────────────
+        // Règle : si le bloc contient un JF, la veille ouvrée est incluse dans le bloc
+        // (= même véto fait la veille ET le JF → "bloc veille+JF")
+        const astreintUnits=[]; // {days:[...numéros], type:'weJf'}
+        const eveAssigned=new Set();
+
+        closedBlocs.forEach(bloc=>{
+          const firstDay=bloc.days[0];
+          if(bloc.hasHoliday){
+            const eveDay=firstDay-1;
+            if(eveDay>=1&&dayInfo[eveDay]&&dayInfo[eveDay].isOpen){
+              eveAssigned.add(eveDay);
+              astreintUnits.push({days:[eveDay,...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay});
+            } else {
+              astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
+            }
+          } else {
+            // Bloc WE pur (sam+dim), pas de veille incluse
+            astreintUnits.push({days:[...bloc.days],hasHoliday:false,hasWE:true,eveDay:null});
+          }
+        });
+
+        // ── 5. Assigner les blocs WE/JF (équilibrage annuel) ──────────
+        const assignedDays=new Set();
+
+        astreintUnits.forEach(unit=>{
+          const isUnavailUnit=(vetId)=>
+            unit.days.some(d=>d>=1&&d<=numDays&&isUnavailOn(vetId,dayInfo[d].key));
+
+          let elig=vets.filter(v=>!isUnavailUnit(v.id));
+          if(elig.length===0) elig=[...vets]; // fallback si tout le monde est indispo
+
+          elig.sort((a,b)=>{
+            // Priorité 1 : équilibrage des blocs WE/JF sur l'année
+            const wa=load[a.id]?.weJf||0, wb=load[b.id]?.weJf||0;
+            if(wa!==wb) return wa-wb;
+            // Priorité 2 : charge totale
+            return (load[a.id]?.total||0)-(load[b.id]?.total||0);
+          });
+
           const chosen=elig[0]?.id||null;
-          newA[key]={midi:chosen, soir:chosen};
-          if(chosen){ load[chosen].midi++; load[chosen].soir++; }
-        }
+          if(chosen) load[chosen].weJf++;
 
-        // Passe 2 : jours de semaine
+          unit.days.forEach(d=>{
+            if(d<1||d>numDays) return;
+            const key=dayInfo[d].key;
+            newA[key]={midi:chosen,soir:chosen};
+            if(chosen) load[chosen].total++;
+            assignedDays.add(d);
+          });
+        });
+
+        // ── 6. Jours de semaine restants (règle anti-consécutif) ──────
+        // Règle : éviter d'attribuer la même astreinte 2 jours consécutifs à un même véto
+        // Exceptions déjà gérées par les blocs ci-dessus.
         for(let d=1;d<=numDays;d++){
-          const dow=dowJS(year,month,d);
-          if(isWE(dow)) continue;
-          if(!openDays[dow]) continue;
-          const key=dk_(year,month,d);
-          if(newA[key]) continue;
-          if(holidays.has(key)) continue; // traité en passe 1.5
+          if(assignedDays.has(d)) continue;
+          if(!dayInfo[d].isOpen) continue;
 
-          // SOIR — vendredi : exclure le veto de week-end si connu
-          let eligS=eligible(key,'soir');
-          if(dow===5 && weVet) eligS=eligS.filter(v=>v.id!==weVet);
-          if(eligS.length===0) eligS=eligible(key,'soir');
-          const soirVet=eligS[0]?.id||null;
-          if(soirVet) load[soirVet].soir++;
+          const key=dayInfo[d].key;
+          const dow=dayInfo[d].dow;
 
-          // MIDI = SOIR par défaut (même personne)
-          newA[key]={midi:soirVet, soir:soirVet};
+          // Véto du jour précédent (anti-consécutif)
+          const prevKey=d>1&&dayInfo[d-1]?dayInfo[d-1].key:null;
+          const prevVet=prevKey&&newA[prevKey]?newA[prevKey].soir:null;
+
+          // Véto du prochain jour assigné (pour éviter friction avant bloc WE/JF)
+          let nextVet=null;
+          for(let nd=d+1;nd<=numDays;nd++){
+            if(dayInfo[nd]&&newA[dayInfo[nd].key]){
+              nextVet=newA[dayInfo[nd].key].midi;
+              break;
+            }
+          }
+
+          let elig=vets.filter(v=>{
+            const u=unavail[key]||{};
+            return !(u.midi||[]).includes(v.id)&&!(u.soir||[]).includes(v.id);
+          });
+          if(elig.length===0) elig=[...vets];
+
+          elig.sort((a,b)=>{
+            let sa=-(load[a.id]?.total||0);
+            let sb=-(load[b.id]?.total||0);
+            // Pénalité forte : même véto que la veille → no-consécutif
+            if(a.id===prevVet) sa-=25;
+            if(b.id===prevVet) sb-=25;
+            // Pénalité : même véto que le prochain bloc (fort le vendredi)
+            if(a.id===nextVet) sa-=(dow===5?15:5);
+            if(b.id===nextVet) sb-=(dow===5?15:5);
+            return sb-sa;
+          });
+
+          const chosen=elig[0]?.id||null;
+          newA[key]={midi:chosen,soir:chosen};
+          if(chosen) load[chosen].total++;
+          assignedDays.add(d);
         }
 
         setAstreintes(newA);
-      },[vets,planning,unavail,openDays,unavail,numDays,year,month,yearlyData,holidays]);
+      },[vets,planning,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
       const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
@@ -1321,7 +1380,7 @@
               {/* ── Panneau Astreinte ── */}
               {activeSlot==='astreinte'&&(
                 <AstreintePanel datekey={datekey} vets={vets} astreintes={astreintes}
-                  setAstreintes={setAstreintes} dow={dow} wp={wp} />
+                  setAstreintes={setAstreintes} dow={dow} wp={wp} holidays={holidays}/>
               )}
               <p style={{fontSize:11,color:'#9ca3af',marginTop:14,textAlign:'center'}}>Modifications sauvegardées automatiquement</p>
             </div>
@@ -1332,11 +1391,19 @@
 
 
     // ─── Panneau Astreinte (dans la modal) ────────────────────
-    function AstreintePanel({datekey,vets,astreintes,setAstreintes,dow,wp}){
+    function AstreintePanel({datekey,vets,astreintes,setAstreintes,dow,wp,holidays}){
       const dayA = astreintes[datekey]||{midi:null,soir:null};
       const we   = isWE(dow);
-      // Sur semaine : midi suit soir par défaut, sauf si override manuel
-      const midiOverride = !we && dayA.midi !== dayA.soir && (dayA.midi !== null || dayA.soir === null);
+      const isHol = holidays&&holidays.has(datekey);
+      const [y,m,d]=datekey.split('-').map(Number);
+      const nextDate=new Date(y,m-1,d+1);
+      const nextKey=`${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`;
+      const nextDow=nextDate.getDay();
+      const nextIsHol=holidays&&holidays.has(nextKey);
+      const isEveOfBloc=!we&&!isHol&&(isWE(nextDow)||nextIsHol);
+      const isWEorJF = we || isHol;
+      // Sur semaine standard : midi suit soir par défaut, sauf si override manuel
+      const midiOverride = !isWEorJF && !isEveOfBloc && dayA.midi !== dayA.soir && (dayA.midi !== null || dayA.soir === null);
       const [showMidiOverride, setShowMidiOverride] = useState(midiOverride);
 
       const setSoir = (vid) => {
@@ -1353,16 +1420,26 @@
       }));
       const setSlot = (slot,vid) => slot==='soir' ? setSoir(vid) : setMidi(vid);
 
-      // Week-end : un seul bloc
-      if(we){
+      // WE, JF ou veille d'un bloc JF : affichage unifié en bloc
+      if(isWEorJF || isEveOfBloc){
         const cur=dayA.midi||null;
+        const blocLabel = isHol
+          ? '🎌🌙 Bloc jour férié'
+          : isEveOfBloc
+            ? '🌆🌙 Bloc veille + jour férié'
+            : '☀️🌙 Bloc week-end';
+        const blocDesc = isHol
+          ? 'Jour férié → réouverture'
+          : isEveOfBloc
+            ? 'Veille fermeture → réouverture après le férié'
+            : 'Samedi midi → lundi réouverture';
         return(
           <div>
             <div className="astr-section">
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                 <div>
-                  <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>☀️🌙 Bloc week-end</span>
-                  <div style={{fontSize:11,color:'#9ca3af'}}>Samedi midi → lundi réouverture</div>
+                  <span style={{fontSize:13,fontWeight:600,color:'#374151'}}>{blocLabel}</span>
+                  <div style={{fontSize:11,color:'#9ca3af'}}>{blocDesc}</div>
                 </div>
                 {cur&&<button onClick={()=>setAstreintes(prev=>({...prev,[datekey]:{midi:null,soir:null}}))}
                   style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>Effacer</button>}
@@ -1820,12 +1897,43 @@
       // Agrège les demi-journées par véto pour une année donnée
       const aggregate = useCallback((yr)=>{
         const months = yearlyData[yr] || {};
-        const counts = Object.fromEntries(vets.map(v=>[v.id,{matin:0,aprem:0,matinH:{matin_A:0,matin_B:0},apremH:{aprem_A:0,aprem_B:0},astrMidi:0,astrSoir:0,days:new Set()}]));
+        const counts = Object.fromEntries(vets.map(v=>[v.id,{
+          matin:0,aprem:0,
+          matinH:{matin_A:0,matin_B:0},
+          apremH:{aprem_A:0,aprem_B:0},
+          astrDays:0,
+          astrBlocsWEJF:0,
+          days:new Set()
+        }]));
+        const dk_=(y,m,d)=>`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const yHols=getFrenchHolidays(parseInt(yr));
+
         Object.values(months).forEach(({planning:p, astreintes:a})=>{
-          if(a) Object.values(a).forEach(({midi,soir})=>{
-            if(midi&&counts[midi]) counts[midi].astrMidi=(counts[midi].astrMidi||0)+1;
-            if(soir&&counts[soir]) counts[soir].astrSoir=(counts[soir].astrSoir||0)+1;
-          });
+          if(a){
+            const sortedKeys=Object.keys(a).sort();
+            sortedKeys.forEach(key=>{
+              const {midi}=a[key];
+              if(!midi||!counts[midi]) return;
+              const [ky,km,kd]=key.split('-').map(Number);
+              const dow2=new Date(ky,km-1,kd).getDay();
+              const isHol2=yHols.has(key);
+              const isClosed2=isWE(dow2)||isHol2;
+              counts[midi].astrDays++;
+              if(isClosed2){
+                const prev=new Date(ky,km-1,kd-1);
+                const prevKey=dk_(prev.getFullYear(),prev.getMonth(),prev.getDate());
+                const prevDow=prev.getDay();
+                const prevClosed=isWE(prevDow)||yHols.has(prevKey);
+                if(!prevClosed) counts[midi].astrBlocsWEJF++;
+              } else {
+                const next=new Date(ky,km-1,kd+1);
+                const nextKey=dk_(next.getFullYear(),next.getMonth(),next.getDate());
+                const nextDow=next.getDay();
+                const nextClosed=isWE(nextDow)||yHols.has(nextKey);
+                if(nextClosed) counts[midi].astrBlocsWEJF++;
+              }
+            });
+          }
           Object.entries(p||{}).forEach(([dk,dp])=>{
             if(!dp) return;
             ['matin','aprem'].forEach(slot=>{
@@ -1954,8 +2062,8 @@
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#4c1d95',fontSize:10,background:'#f5f3ff',whiteSpace:'nowrap'}}>14h30–18h30</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Total DJ</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Équiv. jours</th>
-                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#7c3aed',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>☀️ Astr. midi</th>
-                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#7c3aed',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>🌙 Astr. soir</th>
+                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#7c3aed',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#f5f3ff',whiteSpace:'nowrap'}}>🌙 Nuits semaine</th>
+                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#b45309',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef3c7',whiteSpace:'nowrap'}}>🗓 Blocs WE/JF</th>
                         <th style={{padding:'10px 20px',textAlign:'left',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Répartition</th>
                       </tr>
                     </thead>
@@ -1966,12 +2074,6 @@
                         const pct=maxTotal>0?Math.round(total/maxTotal*100):0;
                         return(
                           <tr key={v.id} style={{borderTop:'1px solid #f1f5f9',background:i%2===0?'#fff':'#fafafa'}}>
-                            <td style={{padding:'12px',textAlign:'center'}}>
-                              <span style={{fontWeight:600,color:'#7c3aed',fontSize:14}}>{d.astrMidi||0}</span>
-                            </td>
-                            <td style={{padding:'12px',textAlign:'center'}}>
-                              <span style={{fontWeight:600,color:'#7c3aed',fontSize:14}}>{d.astrSoir||0}</span>
-                            </td>
                             <td style={{padding:'12px 20px'}}>
                               <div style={{display:'flex',alignItems:'center',gap:8}}>
                                 <div style={{width:10,height:10,borderRadius:'50%',background:v.color,flexShrink:0}}/>
@@ -2001,6 +2103,12 @@
                             </td>
                             <td style={{padding:'12px',textAlign:'center'}}>
                               <span style={{fontWeight:600,color:'#0d9488'}}>{(total/2).toFixed(1)}</span>
+                            </td>
+                            <td style={{padding:'12px',textAlign:'center',background:'#f5f3ff44'}}>
+                              <span style={{fontWeight:700,color:'#7c3aed',fontSize:15}}>{d.astrDays||0}</span>
+                            </td>
+                            <td style={{padding:'12px',textAlign:'center',background:'#fef3c744'}}>
+                              <span style={{fontWeight:700,color:'#b45309',fontSize:15}}>{d.astrBlocsWEJF||0}</span>
                             </td>
                             <td style={{padding:'12px 20px'}}>
                               <div style={{display:'flex',gap:2,alignItems:'center'}}>
@@ -2040,10 +2148,18 @@
                         </td>
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#1f2937',fontSize:15}}>{totalDJ}</td>
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#0d9488'}}>{(totalDJ/2).toFixed(1)}</td>
+                        <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#7c3aed',background:'#f5f3ff44'}}>
+                          {vets.reduce((s,v)=>s+(data[v.id]?.astrDays||0),0)}
+                        </td>
+                        <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#b45309',background:'#fef3c744'}}>
+                          {vets.reduce((s,v)=>s+(data[v.id]?.astrBlocsWEJF||0),0)}
+                        </td>
                         <td style={{padding:'10px 20px'}}>
-                          <div style={{display:'flex',gap:12,fontSize:11,color:'#6b7280'}}>
+                          <div style={{display:'flex',gap:10,fontSize:11,color:'#6b7280',flexWrap:'wrap'}}>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#f59e0b',borderRadius:2,display:'inline-block'}}/>Matin</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#8b5cf6',borderRadius:2,display:'inline-block'}}/>Après-midi</span>
+                            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#7c3aed',borderRadius:2,display:'inline-block'}}/>Nuits sem.</span>
+                            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#b45309',borderRadius:2,display:'inline-block'}}/>Blocs WE/JF</span>
                           </div>
                         </td>
                       </tr>
