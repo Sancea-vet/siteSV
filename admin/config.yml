@@ -1,6 +1,6 @@
 backend:
   name: github
-  repo: "adrienleleuchenvt-afk/siteSV"
+  repo: "Sancea-vet/siteSV"
   branch: main
   base_url: https://sitesv.pages.dev
   auth_scope: repo          # aligné avec auth.js

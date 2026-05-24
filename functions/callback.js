@@ -1,3 +1,5 @@
+import { GITHUB_OAUTH_CLIENT_ID } from './github-config.js';
+
 export async function onRequest(context) {
   const { request, env } = context;
   const { searchParams } = new URL(request.url);
@@ -14,7 +16,7 @@ export async function onRequest(context) {
   if (!csrfToken || state !== csrfToken) {
     return outputHTML({ provider: 'github', error: 'CSRF détecté', errorCode: 'CSRF_DETECTED' });
   }
-  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+  if (!env.GITHUB_CLIENT_SECRET) {
     return outputHTML({ provider: 'github', error: 'Credentials manquants', errorCode: 'MISCONFIGURED_CLIENT' });
   }
 
@@ -25,7 +27,7 @@ export async function onRequest(context) {
       headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({
         code,
-        client_id: env.GITHUB_CLIENT_ID,
+        client_id: GITHUB_OAUTH_CLIENT_ID,
         client_secret: env.GITHUB_CLIENT_SECRET,
       }),
     });

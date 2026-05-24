@@ -789,28 +789,22 @@
           });
         });
 
-        // Incompatibilité matin_B + après-midi (10h30–13h30 chevauche les créneaux aprem)
-          const matinBVetsAlert=new Set(
-            toSlotArr(dayPlanning.matin).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[])
-          );
-          if(matinBVetsAlert.size>0){
-            toSlotArr(dayPlanning.aprem).forEach(sub=>{
-              (sub.vets||[]).forEach(vid=>{
-                if(matinBVetsAlert.has(vid)){
-                  const v=vets.find(x=>x.id===vid);
-                  alerts.push({level:'error',slot:'aprem',msg:`${v?v.name:'?'} fait matin 10h30–13h30 ET après-midi (incompatible)`});
-                }
-              });
-            });
-          }
-
-        // Samedi : aprem_B interdit
+        // Samedi : aprem_B interdit + matin_B incompatible avec aprem_A
           if(dow===6){
             toSlotArr(dayPlanning.aprem).forEach(sub=>{
               if(sub.horaire==='aprem_B'&&(sub.vets||[]).length>0){
                 const names=(sub.vets||[]).map(vid=>vets.find(x=>x.id===vid)?.name||'?').join(', ');
                 alerts.push({level:'error',slot:'aprem',msg:`Samedi : seul aprem_A (13h–17h) autorisé — ${names} sur aprem_B`});
               }
+            });
+            const matinBSam=new Set(toSlotArr(dayPlanning.matin).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]));
+            toSlotArr(dayPlanning.aprem).forEach(sub=>{
+              (sub.vets||[]).forEach(vid=>{
+                if(matinBSam.has(vid)){
+                  const v=vets.find(x=>x.id===vid);
+                  alerts.push({level:'error',slot:'aprem',msg:`${v?v.name:'?'} fait matin 10h30–13h30 ET aprem samedi (chevauchement 13h)`});
+                }
+              });
             });
           }
 
@@ -899,13 +893,12 @@
               // ── Samedi : uniquement aprem_A (13h–17h) ──────────────────
               const isSaturday = dow === 6;
 
-              // ── Matin B → exclut de l'après-midi ──────────────────────
-              // Si un véto a été assigné au créneau matin_B ce jour,
-              // il ne peut pas faire l'après-midi (10h30-13h30 chevauche 13h-17h)
-              const matinBVets = new Set(
-                (day.matin||[]).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[])
-              );
-              // Filtrer les éligibles en retirant ceux qui font matin_B
+              // ── Samedi seulement : matin B (10h30–13h30) chevauche aprem_A (13h–17h)
+              //    → les vétos en matin_B ne peuvent pas faire l'aprem le samedi
+              const matinBVets = isSaturday
+                ? new Set((day.matin||[]).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]))
+                : new Set(); // en semaine : pas de restriction
+
               const eligAprem = asgn.filter(v=>!matinBVets.has(v.id));
 
               // ── Règles finish_17h + équilibrage des fins à 17h ─────────
@@ -918,28 +911,41 @@
               );
               const forced = eligAprem.filter(v=>finish17hSet.has(v.id));
               const free   = eligAprem.filter(v=>!finish17hSet.has(v.id));
-              free.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
 
               if(isSaturday){
                 // Samedi : tout le monde sur aprem_A, pas d'aprem_B
+                free.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
                 const samediElig=[...forced,...free];
-                slotArrTemplate[1].vets=[]; // vider aprem_B
+                slotArrTemplate[1].vets=[];
                 samediElig.forEach(v=>{
-                  slotArrTemplate[0].vets.push(v.id); // aprem_A uniquement
+                  slotArrTemplate[0].vets.push(v.id);
                   wl[v.id]++;
                   apremALoad[v.id]=(apremALoad[v.id]||0)+1;
                 });
               } else {
+                // En semaine : les vétos en matin_B sont préférentiellement mis sur aprem_B
+                // (10h30–13h30 + 15h–19h = journée cohérente sans chevauchement)
+                const matinBWeekday = new Set((day.matin||[]).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]));
+                const preferApremB = free.filter(v=>matinBWeekday.has(v.id));
+                const preferApremA = free.filter(v=>!matinBWeekday.has(v.id));
+                preferApremA.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
+                preferApremB.sort((a,b)=>wl[a.id]-wl[b.id]);
+
                 forced.forEach(v=>{
                   slotArrTemplate[0].vets.push(v.id); // aprem_A (13h–17h)
                   wl[v.id]++;
                   apremALoad[v.id]=(apremALoad[v.id]||0)+1;
                 });
-                free.forEach((v,idx)=>{
+                // Affecter d'abord aprem_A aux non-matinB, puis aprem_B aux matinB
+                preferApremA.forEach((v,idx)=>{
                   const target=slotArrTemplate[idx%2];
                   target.vets.push(v.id);
                   wl[v.id]++;
                   if(target.horaire==='aprem_A') apremALoad[v.id]=(apremALoad[v.id]||0)+1;
+                });
+                preferApremB.forEach(v=>{
+                  slotArrTemplate[1].vets.push(v.id); // aprem_B (15h–19h)
+                  wl[v.id]++;
                 });
               }
             } else {
@@ -1879,9 +1885,9 @@
               </div>
               <div className="rule-row" style={{background:'#fff'}}>
                 <span style={{flex:1,fontSize:13}}>
-                  🚫 <strong>Matin B (10h30–13h30) incompatible avec l'après-midi</strong> — un véto qui fait le matin B ne peut pas faire d'après-midi ce jour-là
+                  🚫 <strong>Samedi : matin B (10h30–13h30) incompatible avec l'après-midi</strong> — chevauche aprem_A (13h). En semaine, matin B + aprem B (15h–19h) est autorisé et préféré
                 </span>
-                <span className="slot-badge slot-matin">Matin B</span>
+                <span className="slot-badge slot-matin">Matin B · Sam</span>
               </div>
             </div>
           </div>
