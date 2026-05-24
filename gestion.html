@@ -181,69 +181,81 @@
   <script type="text/babel">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
-    // ─── Persistance IndexedDB ─────────────────────────────────
-    const DB_NAME = 'sanceavet_db';
+    // ─── Couche persistance KV (Cloudflare) + IDB (cache local) ──
+    // KV  = source de vérité partagée entre tous les utilisateurs
+    // IDB = cache local pour accélération du chargement (lecture immédiate)
+    //
+    // Au démarrage : on lit IDB pour afficher immédiatement, puis on
+    //   charge KV en arrière-plan et on fusionne (KV prime sur IDB).
+    // À la sauvegarde : écriture IDB + KV en parallèle (1 seul write KV).
+
+    // ── IndexedDB (cache local) ───────────────────────────────────
+    const DB_NAME   = 'sanceavet_db';
     const DB_VERSION = 1;
-    const STORE = 'planning_store';
+    const STORE     = 'planning_store';
+    const IDB_KEY   = 'all_data';
 
     function openDB() {
       return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
+        req.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+        };
         req.onsuccess = e => resolve(e.target.result);
-        req.onerror = () => reject(req.error);
+        req.onerror   = () => reject(req.error);
       });
     }
-    async function idbGet(key) {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const req = tx.objectStore(STORE).get(key);
-        req.onsuccess = () => resolve(req.result ?? null);
-        req.onerror = () => resolve(null);
-      });
+    async function idbLoad() {
+      try {
+        const db  = await openDB();
+        return new Promise(resolve => {
+          const tx  = db.transaction(STORE, 'readonly');
+          const req = tx.objectStore(STORE).get(IDB_KEY);
+          req.onsuccess = () => resolve(req.result ?? null);
+          req.onerror   = () => resolve(null);
+        });
+      } catch { return null; }
     }
-    async function idbSet(key, val) {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put(val, key);
-        tx.oncomplete = resolve;
-        tx.onerror = resolve;
-      });
-    }
-    async function idbGetAll() {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const store = tx.objectStore(STORE);
-        const keys = [], vals = [];
-        store.openKeyCursor().onsuccess = e => {
-          const c = e.target.result;
-          if(c){ keys.push(c.key); c.continue(); }
-        };
-        store.openCursor().onsuccess = e => {
-          const c = e.target.result;
-          if(c){ vals.push([c.key, c.value]); c.continue(); }
-        };
-        tx.oncomplete = () => resolve(Object.fromEntries(vals));
-        tx.onerror = () => resolve({});
-      });
+    async function idbSave(data) {
+      try {
+        const db = await openDB();
+        return new Promise(resolve => {
+          const tx = db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).put(data, IDB_KEY);
+          tx.oncomplete = resolve;
+          tx.onerror    = resolve;
+        });
+      } catch {}
     }
     async function idbClear() {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).clear();
-        tx.oncomplete = resolve;
-      });
+      try {
+        const db = await openDB();
+        return new Promise(resolve => {
+          const tx = db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).delete(IDB_KEY);
+          tx.oncomplete = resolve;
+        });
+      } catch {}
     }
 
-    // Fallback localStorage pour init synchrone
-    const LS_KEY = 'sanceavet_v2';
-    function lsLoad(key, fallback) {
-      try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback; }
-      catch(e) { return fallback; }
+    // ── KV API (Cloudflare) ───────────────────────────────────────
+    // Auth gérée par Cloudflare Access — pas de token côté client
+    async function kvLoad() {
+      const res = await fetch('/api/data');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }
+    async function kvSave(data) {
+      const res = await fetch('/api/data', {
+        method : 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body   : JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    }
+    async function kvClear() {
+      await fetch('/api/data', { method: 'DELETE' });
     }
 
     // ─── Constantes ────────────────────────────────────────────
@@ -251,7 +263,6 @@
     const JS_FULL = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
     const MOIS    = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const PALETTE = ['#0d9488','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#0891b2','#f97316','#16a34a','#be185d','#7c3aed'];
-    const VALID_ID = 'Sancea2026';
 
     const HORAIRES = {
       matin_A: { id:'matin_A', label:'8h30 – 11h30',  slot:'matin', short:'8h30-11h30' },
@@ -346,36 +357,6 @@
       return [raw];
     };
 
-    // ─── Protection ────────────────────────────────────────────
-    function ProtectedApp() {
-      const [ok,setOk]       = useState(false);
-      const [id,setId]       = useState('');
-      const [err,setErr]     = useState('');
-      const handle = e => {
-        e.preventDefault();
-        id===VALID_ID ? (setOk(true),setErr('')) : setErr('Identifiant incorrect.');
-      };
-      if (!ok) return (
-        <div style={{minHeight:'60vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div className="g-card" style={{maxWidth:420,width:'100%',textAlign:'center',padding:36}}>
-            <div style={{fontSize:36,marginBottom:12}}>🔒</div>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:22,marginBottom:8,color:'#1f2937'}}>Accès Gestion</h1>
-            <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Saisissez l'identifiant interne pour accéder au planning.</p>
-            {err&&<p style={{color:'#ef4444',fontSize:13,marginBottom:12}}>{err}</p>}
-            <form onSubmit={handle}>
-              <input type="password" value={id} onChange={e=>setId(e.target.value)}
-                placeholder="Identifiant…" className="g-input"
-                style={{width:'100%',marginBottom:12,textAlign:'center',letterSpacing:'0.15em'}} autoComplete="off"/>
-              <button type="submit" className="btn-teal" style={{width:'100%',justifyContent:'center',padding:'10px 0'}}>
-                Accéder au planning
-              </button>
-            </form>
-          </div>
-        </div>
-      );
-      return <App />;
-    }
-
     // ─── App ───────────────────────────────────────────────────
     const DEFAULT_VETS = [
       {id:'v1',name:'Dr. Martin', email:'martin@clinique.fr', phone:'', color:PALETTE[0]},
@@ -411,47 +392,75 @@
       const [gclientId, setGclientId] = useState('');
       const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
+      const [kvStatus,  setKvStatus]  = useState('loading'); // 'loading'|'ok'|'error'
       const [loaded,    setLoaded]    = useState(false);
 
-      // ── Chargement IndexedDB au démarrage ─────────────────────
-      useEffect(()=>{
-        (async()=>{
-          const d = await idbGetAll();
-          if(d.vets)       setVets(d.vets);
-          if(d.rules)      setRules(d.rules);
-          if(d.openDays)   setOpenDays(d.openDays);
-          if(d.planning)   setPlanning(d.planning);
-          if(d.unavail)    setUnavail(d.unavail);
-          if(d.validated !== undefined) setValidated(d.validated);
-          if(d.yearlyData) setYearlyData(d.yearlyData);
-          if(d.astreintes) setAstreintes(d.astreintes);
-          if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
-          if(d.gclientId)  setGclientId(d.gclientId);
-          if(d.calId)      setCalId(d.calId);
+      // ── Fonction qui applique un blob de données aux états ─────
+      const applyData = useCallback((d) => {
+        if (!d || typeof d !== 'object') return;
+        if (d.vets)                       setVets(d.vets);
+        if (d.rules)                      setRules(d.rules);
+        if (d.openDays)                   setOpenDays(d.openDays);
+        if (d.planning)                   setPlanning(d.planning);
+        if (d.unavail)                    setUnavail(d.unavail);
+        if (d.validated !== undefined)    setValidated(d.validated);
+        if (d.yearlyData)                 setYearlyData(d.yearlyData);
+        if (d.astreintes)                 setAstreintes(d.astreintes);
+        if (d.nav)                        { setYear(d.nav.year); setMonth(d.nav.month); }
+        if (d.gclientId)                  setGclientId(d.gclientId);
+        if (d.calId)                      setCalId(d.calId);
+      }, []);
+
+      // ── Chargement au démarrage : IDB d'abord, KV ensuite ──────
+      useEffect(() => {
+        (async () => {
+          // 1. Cache local IDB → affichage immédiat
+          const cached = await idbLoad();
+          if (cached) { applyData(cached); setLoaded(true); }
+
+          // 2. KV → source de vérité (remplace IDB si données plus récentes)
+          try {
+            const kv = await kvLoad();
+            if (kv && Object.keys(kv).length > 0) {
+              applyData(kv);
+              await idbSave(kv);  // mettre à jour le cache local
+            }
+            setKvStatus('ok');
+          } catch (err) {
+            console.warn('KV indisponible, mode cache local :', err.message);
+            setKvStatus('error');
+          }
+
           setLoaded(true);
         })();
-      },[]);
+      }, []);  // eslint-disable-line
 
-      // ── Auto-save IndexedDB ───────────────────────────────────
+      // ── Auto-save : IDB + KV en parallèle (debounce 1,2s) ──────
       const saveTimer = useRef(null);
       const triggerSave = useCallback((data) => {
-        if(!data.loaded) return;
+        if (!data.loaded) return;
         clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(async () => {
-          await idbSet('vets',      data.vets);
-          await idbSet('rules',     data.rules);
-          await idbSet('openDays',  data.openDays);
-          await idbSet('planning',  data.planning);
-          await idbSet('unavail',   data.unavail);
-          await idbSet('validated', data.validated);
-          await idbSet('yearlyData',data.yearlyData);
-          await idbSet('astreintes',data.astreintes);
-          await idbSet('nav',       {year:data.year, month:data.month});
-          await idbSet('gclientId', data.gclientId);
-          await idbSet('calId',     data.calId);
-          setSaveFlash(true);
-          setTimeout(()=>setSaveFlash(false), 1800);
-        }, 800);
+          const blob = {
+            vets: data.vets, rules: data.rules, openDays: data.openDays,
+            planning: data.planning, unavail: data.unavail, validated: data.validated,
+            yearlyData: data.yearlyData, astreintes: data.astreintes,
+            nav: { year: data.year, month: data.month },
+            gclientId: data.gclientId, calId: data.calId,
+          };
+          // Écriture parallèle IDB (cache local) + KV (partagé)
+          const [, kvErr] = await Promise.all([
+            idbSave(blob),
+            kvSave(blob).then(() => null).catch(e => e),
+          ]);
+          if (kvErr) {
+            setKvStatus('error');
+          } else {
+            setKvStatus('ok');
+            setSaveFlash(true);
+            setTimeout(() => setSaveFlash(false), 1800);
+          }
+        }, 1200);
       }, []);
 
       useEffect(()=>{
@@ -478,23 +487,16 @@
           reader.onload = async ev => {
             try {
               const d = JSON.parse(ev.target.result);
-              if(d.vets)       setVets(d.vets);
-              if(d.rules)      setRules(d.rules);
-              if(d.openDays)   setOpenDays(d.openDays);
-              if(d.planning)   setPlanning(d.planning);
-              if(d.unavail)    setUnavail(d.unavail);
-              if(d.validated !== undefined) setValidated(d.validated);
-              if(d.yearlyData) setYearlyData(d.yearlyData);
-              if(d.astreintes) setAstreintes(d.astreintes);
-              if(d.gclientId)  setGclientId(d.gclientId);
-              if(d.calId)      setCalId(d.calId);
-              alert('✅ Import réussi !');
+              applyData(d);
+              // Pousser immédiatement vers KV
+              await Promise.all([idbSave(d), kvSave(d).catch(()=>{})]);
+              alert('✅ Import réussi et synchronisé !');
             } catch(err){ alert('❌ Fichier JSON invalide'); }
           };
           reader.readAsText(file);
         };
         input.click();
-      },[]);
+      },[applyData]);
 
 
       // ── Génération des astreintes ──────────────────────────────
@@ -1027,11 +1029,25 @@
               <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · journées entières privilégiées · jours fériés avec veille · grand WE automatique · sauvegarde automatique</p>
             </div>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-              {saveFlash&&(
+              {/* Indicateur connexion KV */}
+              {kvStatus==='loading'&&(
+                <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#9ca3af',
+                  background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:20,padding:'4px 12px'}}>
+                  ⏳ Connexion…
+                </span>
+              )}
+              {kvStatus==='error'&&(
+                <span title="Données non synchronisées avec le serveur. Mode hors-ligne."
+                  style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#dc2626',
+                  background:'#fef2f2',border:'1px solid #fecaca',borderRadius:20,padding:'4px 12px',cursor:'default'}}>
+                  ⚠️ Hors-ligne
+                </span>
+              )}
+              {saveFlash&&kvStatus==='ok'&&(
                 <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#059669',
                   background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:20,padding:'4px 12px',
                   animation:'fadeIn .2s ease',fontWeight:500}}>
-                  ✓ Sauvegardé
+                  ☁️ Synchronisé
                 </span>
               )}
               <button onClick={exportJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#0d9488',borderColor:'#99f6e4'}}>
@@ -2545,7 +2561,7 @@
     }
 
     const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<ProtectedApp />);
+    root.render(<App />);
   </script>
 </body>
 </html>

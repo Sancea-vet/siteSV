@@ -1,0 +1,10 @@
+name = "sv"
+compatibility_date = "2024-09-23"
+pages_build_output_dir = "."
+
+# La KV namespace est liée ici.
+# Après avoir créé la namespace (voir README), remplace l'id ci-dessous.
+[[kv_namespaces]]
+binding = "PLANNING_KV"
+id     = "83ca64bd38674ed5a8f75ce037b9d1c8"
+
