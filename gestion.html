@@ -251,7 +251,6 @@
     const JS_FULL = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
     const MOIS    = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const PALETTE = ['#0d9488','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#0891b2','#f97316','#16a34a','#be185d','#7c3aed'];
-    const VALID_ID = 'Sancea2026';
 
     const HORAIRES = {
       matin_A: { id:'matin_A', label:'8h30 – 12h30', slot:'matin', short:'8h30-12h30' },
@@ -348,47 +347,17 @@
       return [raw];
     };
 
-    // ─── Protection ────────────────────────────────────────────
-    function ProtectedApp() {
-      const [ok,setOk]       = useState(false);
-      const [id,setId]       = useState('');
-      const [err,setErr]     = useState('');
-      const handle = e => {
-        e.preventDefault();
-        id===VALID_ID ? (setOk(true),setErr('')) : setErr('Identifiant incorrect.');
-      };
-      if (!ok) return (
-        <div style={{minHeight:'60vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div className="g-card" style={{maxWidth:420,width:'100%',textAlign:'center',padding:36}}>
-            <div style={{fontSize:36,marginBottom:12}}>🔒</div>
-            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:22,marginBottom:8,color:'#1f2937'}}>Accès Gestion</h1>
-            <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Saisissez l'identifiant interne pour accéder au planning.</p>
-            {err&&<p style={{color:'#ef4444',fontSize:13,marginBottom:12}}>{err}</p>}
-            <form onSubmit={handle}>
-              <input type="password" value={id} onChange={e=>setId(e.target.value)}
-                placeholder="Identifiant…" className="g-input"
-                style={{width:'100%',marginBottom:12,textAlign:'center',letterSpacing:'0.15em'}} autoComplete="off"/>
-              <button type="submit" className="btn-teal" style={{width:'100%',justifyContent:'center',padding:'10px 0'}}>
-                Accéder au planning
-              </button>
-            </form>
-          </div>
-        </div>
-      );
-      return <App />;
-    }
-
     // ─── App ───────────────────────────────────────────────────
     const DEFAULT_VETS = [
-      {id:'v1',name:'Dr. Martin', email:'martin@clinique.fr', phone:'', color:PALETTE[0]},
-      {id:'v2',name:'Dr. Dubois', email:'dubois@clinique.fr', phone:'', color:PALETTE[1]},
-      {id:'v3',name:'Dr. Bernard',email:'bernard@clinique.fr',phone:'', color:PALETTE[2]},
-      {id:'v4',name:'Dr. Petit',  email:'petit@clinique.fr',  phone:'', color:PALETTE[3]},
+      {id:'v1',name:'Adrien', email:'martin@clinique.fr', phone:'', color:PALETTE[0]},
+      {id:'v2',name:'Alexis', email:'dubois@clinique.fr', phone:'', color:PALETTE[1]},
+      {id:'v3',name:'Lucie',email:'bernard@clinique.fr',phone:'', color:PALETTE[2]},
+      {id:'v4',name:'Maxime',  email:'petit@clinique.fr',  phone:'', color:PALETTE[3]},
     ];
     const DEFAULT_RULES = [
-      {id:'r1',type:'min_per_slot',slot:'matin',dayType:'weekday',weekParity:'all',min:2},
-      {id:'r2',type:'min_per_slot',slot:'aprem',dayType:'weekday',weekParity:'all',min:1},
-      {id:'r3',type:'min_per_slot',slot:'matin',dayType:'weekend',weekParity:'all',min:1},
+      {id:'r1',type:'min_per_slot',slot:'matin',dayType:'weekday',weekParity:'all',min:3},
+      {id:'r2',type:'min_per_slot',slot:'aprem',dayType:'weekday',weekParity:'all',min:2},
+      {id:'r3',type:'min_per_slot',slot:'matin',dayType:'weekend',weekParity:'all',min:2},
       {id:'r4',type:'horaire_rule',slot:'matin',dayType:'all',weekParity:'even',horaire:'matin_A'},
       {id:'r5',type:'horaire_rule',slot:'matin',dayType:'all',weekParity:'odd', horaire:'matin_B'},
       {id:'r6',type:'horaire_rule',slot:'aprem',dayType:'all',weekParity:'even',horaire:'aprem_A'},
@@ -2315,7 +2284,7 @@
     }
 
     const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<ProtectedApp />);
+    root.render(<App />);
   </script>
 </body>
 </html>
