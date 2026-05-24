@@ -468,58 +468,345 @@
       },[]);
 
 
-      // ── Génération des astreintes ──────────────────────────────
-      const generateAstreintes = useCallback(()=>{
-        const newA = {};
+      // ══════════════════════════════════════════════════════════════
+      // ── GÉNÉRATION UNIFIÉE : astreintes + planning en 3 phases ────
+      // ══════════════════════════════════════════════════════════════
+      //
+      //  Phase 1 : Blocs WE/JF  → un seul vétérinaire par bloc,
+      //            équilibré sur l'année ; inclut la veille ouvrée si JF
+      //  Phase 2 : Astreintes soir (jours ouvrés)
+      //            → équilibrage soir/mois ; espacement min entre 2 soirs
+      //            du même véto ; pénalité si lendemain non travaillé ou WE
+      //  Phase 3 : Planning (jours travaillés)
+      //            → le véto de soir DOIT travailler ce jour et reçoit
+      //              le créneau le plus tardif (aprem_B 18h30)
+      //            → équilibrage global demi-journées + fin 17h entre vétérinaires
+      //
+      const generateAll = useCallback(()=>{
+        const newA = {};   // astreintes finales
+        const newP = {};   // planning final
         const dk_ = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
-        // Helper : heure de fin la plus tardive d'un véto sur un jour donné
-        // Règle : l'astreinte doit être attribuée dès que possible à celui qui finit le plus tard
-        const getVetEndTime = (vetId, key) => {
-          const dayP = planning[key];
-          if (!dayP) return 0;
-          let maxEnd = 0;
-          [...toSlotArr(dayP.matin), ...toSlotArr(dayP.aprem)].forEach(slot => {
-            if ((slot.vets || []).includes(vetId)) {
-              const end = HORAIRE_END_TIME[slot.horaire] || 0;
-              if (end > maxEnd) maxEnd = end;
-            }
-          });
-          return maxEnd;
+        // ── Info journalière ──────────────────────────────────────────
+        const dayInfo = {};
+        for(let d=1; d<=numDays; d++){
+          const key  = dk_(year, month, d);
+          const dow  = dowJS(year, month, d);
+          const isHol   = holidays.has(key);
+          const isClosed = isWE(dow) || isHol;
+          const isOpen   = !isClosed && !!openDays[dow];
+          dayInfo[d] = { key, dow, isClosed, isHoliday: isHol, isOpen };
+        }
+
+        const isUnavailOn = (vetId, key) => {
+          const u = unavail[key] || {};
+          return (u.matin||[]).includes(vetId) || (u.aprem||[]).includes(vetId) ||
+                 (u.midi ||[]).includes(vetId) || (u.soir ||[]).includes(vetId);
         };
 
-        // ── 1. Charge cumulée depuis yearlyData ────────────────────────
-        // load.total  = nb de jours d'astreinte (toutes natures)
-        // load.weJf   = nb de blocs WE/JF (chaque bloc WE = 1 ; chaque bloc JF = 1)
-        const load = Object.fromEntries(vets.map(v=>[v.id,{total:0,weJf:0}]));
+        // ── Charge historique (yearlyData) ────────────────────────────
+        // weJf = nb de blocs WE/JF pris sur l'année
+        // soir = nb d'astreintes soir semaine sur l'année
+        // dj   = total demi-journées travaillées sur l'année
+        const load = Object.fromEntries(vets.map(v=>[v.id,{dj:0, weJf:0, soir:0, fin17:0}]));
 
         Object.entries(yearlyData).forEach(([yr, months])=>{
           const yHols = getFrenchHolidays(parseInt(yr));
           Object.values(months).forEach(({astreintes:a})=>{
             if(!a) return;
-            // Charge totale
-            Object.entries(a).forEach(([key,{midi}])=>{
-              if(midi&&load[midi]) load[midi].total++;
-            });
-            // Blocs WE/JF : compter chaque "début de bloc fermé" (non précédé d'un autre jour fermé)
-            Object.keys(a).sort().forEach(key=>{
-              const [ky,km,kd]=key.split('-').map(Number);
-              const dow2=new Date(ky,km-1,kd).getDay();
-              const isHol2=yHols.has(key);
-              if(!isWE(dow2)&&!isHol2) return; // jour ouvré classique
-              const prev=new Date(ky,km-1,kd-1);
-              const prevKey=dk_(prev.getFullYear(),prev.getMonth(),prev.getDate());
-              const prevDow=prev.getDay();
-              const prevClosed=isWE(prevDow)||yHols.has(prevKey);
-              if(!prevClosed){ // premier jour du bloc
-                const vid=a[key]?.midi;
-                if(vid&&load[vid]) load[vid].weJf++;
+            const sortedKeys = Object.keys(a).sort();
+            sortedKeys.forEach(key=>{
+              const [ky,km,kd] = key.split('-').map(Number);
+              const dow2  = new Date(ky, km-1, kd).getDay();
+              const isHol2 = yHols.has(key);
+              const isClosed2 = isWE(dow2) || isHol2;
+              const vid = a[key]?.soir;
+
+              // Décompte blocs WE/JF : 1 point par "premier jour du bloc"
+              if(isClosed2){
+                const prev = new Date(ky, km-1, kd-1);
+                const prevKey = dk_(prev.getFullYear(), prev.getMonth(), prev.getDate());
+                const prevClosed = isWE(prev.getDay()) || yHols.has(prevKey);
+                if(!prevClosed && vid && load[vid]) load[vid].weJf++;
+              } else {
+                // Astreinte soir semaine
+                if(vid && load[vid]) load[vid].soir++;
               }
+              if(vid && load[vid]) load[vid].dj++;
             });
           });
         });
 
-        // ── 2. Info sur chaque jour du mois ───────────────────────────
+        // ════════════════════════════════════════════════════════════
+        // PHASE 1 : Blocs WE / JF
+        // ════════════════════════════════════════════════════════════
+        const closedBlocs = [];
+        let ci = 1;
+        while(ci <= numDays){
+          if(dayInfo[ci].isClosed){
+            const bloc = { days:[], hasHoliday:false };
+            while(ci <= numDays && dayInfo[ci].isClosed){
+              bloc.days.push(ci);
+              if(dayInfo[ci].isHoliday) bloc.hasHoliday = true;
+              ci++;
+            }
+            closedBlocs.push(bloc);
+          } else { ci++; }
+        }
+
+        const weJfDays = new Set();   // tous les jours couverts par un bloc WE/JF
+        const eveInBloc = new Set();  // veilles de JF incluses dans un bloc
+
+        const astreintUnits = [];
+        closedBlocs.forEach(bloc=>{
+          const firstDay = bloc.days[0];
+          if(bloc.hasHoliday){
+            const eveDay = firstDay - 1;
+            if(eveDay >= 1 && dayInfo[eveDay]?.isOpen){
+              eveInBloc.add(eveDay);
+              astreintUnits.push({ days:[eveDay,...bloc.days], hasHoliday:true, eveDay });
+            } else {
+              astreintUnits.push({ days:[...bloc.days], hasHoliday:true, eveDay:null });
+            }
+          } else {
+            astreintUnits.push({ days:[...bloc.days], hasHoliday:false, eveDay:null });
+          }
+        });
+
+        // Trier les blocs par taille décroissante pour assigner d'abord les plus contraignants
+        astreintUnits.sort((a,b) => b.days.length - a.days.length);
+
+        astreintUnits.forEach(unit=>{
+          const unavailUnit = vetId =>
+            unit.days.some(d => d>=1 && d<=numDays && isUnavailOn(vetId, dayInfo[d].key));
+
+          let elig = vets.filter(v => !unavailUnit(v.id));
+          if(elig.length === 0) elig = [...vets];
+
+          elig.sort((a,b)=>{
+            // P1 : équilibrage WE/JF sur l'année
+            const wa = load[a.id].weJf, wb = load[b.id].weJf;
+            if(wa !== wb) return wa - wb;
+            // P2 : charge totale
+            return load[a.id].dj - load[b.id].dj;
+          });
+
+          const chosen = elig[0]?.id || null;
+          if(chosen) load[chosen].weJf++;
+
+          unit.days.forEach(d=>{
+            if(d < 1 || d > numDays) return;
+            const key = dayInfo[d].key;
+            newA[key] = { midi: chosen, soir: chosen };
+            if(chosen) load[chosen].dj++;
+            weJfDays.add(d);
+          });
+        });
+
+        // ════════════════════════════════════════════════════════════
+        // PHASE 2 : Astreintes soir (jours ouvrés hors WE/JF)
+        // ════════════════════════════════════════════════════════════
+        // Règles :
+        //  - Espacer les astreintes soir d'un même véto (éviter surcharge)
+        //  - Si le lendemain est non travaillé → pénalité (il n'a pas de soirée de repos)
+        //  - Pénalité si le véto qui précède ou suit un bloc WE (cumul)
+        //  - Équilibrage soir sur l'année
+
+        const openWeekdays = [];
+        for(let d=1; d<=numDays; d++){
+          if(dayInfo[d].isOpen && !weJfDays.has(d)) openWeekdays.push(d);
+        }
+
+        // Copie locale du compteur soir pour équilibrage intra-mois
+        const soirLoad = Object.fromEntries(vets.map(v=>[v.id, load[v.id].soir]));
+
+        openWeekdays.forEach(d=>{
+          const key = dayInfo[d].key;
+
+          // Dernier vet de soir assigné (jours ouvrés uniquement, hors WE/JF)
+          let prevSoir = null, prev2Soir = null, consecutiveCount = 0;
+          for(let pd = d-1; pd >= 1; pd--){
+            if(!dayInfo[pd].isOpen || weJfDays.has(pd)) continue;
+            const pSoir = newA[dayInfo[pd].key]?.soir;
+            if(pSoir && !prevSoir){ prevSoir = pSoir; }
+            else if(pSoir && !prev2Soir && pSoir !== prevSoir){ prev2Soir = pSoir; break; }
+            else { break; }
+          }
+
+          // Prochain bloc WE/JF → pénalité si même vet juste avant le WE
+          let nextWeVet = null;
+          for(let nd = d+1; nd <= numDays; nd++){
+            if(weJfDays.has(nd) && newA[dayInfo[nd].key]?.soir){
+              nextWeVet = newA[dayInfo[nd].key].soir;
+              break;
+            }
+          }
+
+          // Le lendemain est-il travaillé ?
+          const nextDayWorked = (d < numDays) && dayInfo[d+1]?.isOpen && !weJfDays.has(d+1);
+
+          let elig = vets.filter(v => !isUnavailOn(v.id, key));
+          if(elig.length === 0) elig = [...vets];
+
+          elig.sort((a,b)=>{
+            // P1 : équilibrage soir sur l'année/mois
+            const sa = soirLoad[a.id], sb = soirLoad[b.id];
+            if(sa !== sb) return sa - sb;
+
+            let penA = 0, penB = 0;
+            // Forte pénalité : même vet que la veille (consécutif)
+            if(a.id === prevSoir)  penA += 30;
+            if(b.id === prevSoir)  penB += 30;
+            // Pénalité modérée : même vet qu'avant-veille
+            if(a.id === prev2Soir) penA += 10;
+            if(b.id === prev2Soir) penB += 10;
+            // Pénalité : juste avant un bloc WE/JF → le même vet cumulerait
+            if(a.id === nextWeVet) penA += 12;
+            if(b.id === nextWeVet) penB += 12;
+            // Légère pénalité si lendemain non travaillé (le vet n'a pas de soirée de repos)
+            if(!nextDayWorked && a.id === prevSoir) penA += 5;
+            if(!nextDayWorked && b.id === prevSoir) penB += 5;
+
+            return penA - penB;
+          });
+
+          const chosen = elig[0]?.id || null;
+          newA[key] = { midi: chosen, soir: chosen };
+          if(chosen){
+            soirLoad[chosen]++;
+            load[chosen].dj++;
+          }
+        });
+
+        // ════════════════════════════════════════════════════════════
+        // PHASE 3 : Planning (jours travaillés)
+        // ════════════════════════════════════════════════════════════
+        // Règles :
+        //  - Le vet de soir DOIT travailler ce jour (matin + aprem = journée complète)
+        //  - Le vet de soir reçoit le créneau le plus tardif (aprem_B 18h30)
+        //  - Éviter les demi-journées sauf contrainte indispo/règle
+        //  - Équilibrer les demi-journées total entre vets
+        //  - Équilibrer les fins à 17h entre vets
+
+        const workLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0, fin17:0}]));
+
+        for(let d=1; d<=numDays; d++){
+          const key = dayInfo[d].key;
+          if(!dayInfo[d].isOpen){ newP[key] = null; continue; }
+
+          const soirVet = newA[key]?.soir || null;
+          const dow     = dayInfo[d].dow;
+          const we      = isWE(dow);
+          const dayU    = unavail[key] || { matin:[], aprem:[] };
+          const day     = {};
+
+          ['matin','aprem'].forEach(slot=>{
+            const horaireStd = slot==='matin' ? 'matin_A' : 'aprem_A';
+            const horaireAlt = slot==='matin' ? 'matin_B' : 'aprem_B';
+
+            const uSet   = new Set(dayU[slot] || []);
+            const exclSet = new Set(
+              rules.filter(r =>
+                r.type==='never_slot' &&
+                (r.slot===slot || r.slot==='all') &&
+                r.dayOfWeek===dow &&
+                parityMatch(r.weekParity, year, month, d)
+              ).map(r=>r.vetId)
+            );
+
+            // Soir vet est-il disponible sur ce slot ?
+            const soirVetAvail = soirVet && !uSet.has(soirVet) && !exclSet.has(soirVet);
+
+            let elig = vets.filter(v => !uSet.has(v.id) && !exclSet.has(v.id));
+            if(elig.length === 0) elig = [...vets];
+
+            const minR = rules.find(r =>
+              r.type==='min_per_slot' && r.slot===slot &&
+              parityMatch(r.weekParity, year, month, d) &&
+              (r.dayType==='all' ||
+               (r.dayType==='weekday' && !we) ||
+               (r.dayType==='weekend' && we))
+            );
+            const need = minR ? minR.min : 1;
+
+            // Tri : vet de soir en priorité pour l'aprem (il finit le plus tard)
+            // Pour le matin : inclure le vet de soir pour éviter les demi-journées
+            elig.sort((a,b)=>{
+              let penA = 0, penB = 0;
+
+              if(slot === 'aprem'){
+                // Vet de soir → créneau tardif garanti → priorité maximale
+                if(a.id === soirVet) penA -= 200;
+                if(b.id === soirVet) penB -= 200;
+              } else {
+                // Matin : inclure aussi le vet de soir pour faire une journée complète
+                if(a.id === soirVet) penA -= 50;
+                if(b.id === soirVet) penB -= 50;
+              }
+
+              // Équilibrage charge globale
+              penA += workLoad[a.id].dj * 3;
+              penB += workLoad[b.id].dj * 3;
+
+              // Équilibrage fin 17h (aprem seulement)
+              if(slot === 'aprem'){
+                penA += workLoad[a.id].fin17 * 2;
+                penB += workLoad[b.id].fin17 * 2;
+              }
+
+              return penA - penB;
+            });
+
+            const asgn = elig.slice(0, need);
+
+            // Si le vet de soir n'est pas dans les "need" premiers mais est disponible,
+            // on l'ajoute quand même (journée complète = priorité)
+            if(soirVetAvail && !asgn.find(v=>v.id===soirVet)){
+              const soirV = vets.find(v=>v.id===soirVet);
+              if(soirV) asgn.push(soirV);
+            }
+
+            // Construire le slotArr
+            // Vet de soir → aprem_B (18h30) pour aprem ; matin_A pour matin (idem autres)
+            const slotArr = [
+              { horaire: horaireStd, vets:[] },
+              { horaire: horaireAlt, vets:[] },
+            ];
+
+            asgn.forEach(v=>{
+              let targetH;
+              if(slot === 'aprem' && v.id === soirVet){
+                targetH = horaireAlt;   // 18h30 → finit le plus tard
+              } else {
+                targetH = horaireStd;   // 17h ou 12h30
+              }
+              const target = slotArr.find(s=>s.horaire===targetH);
+              if(target) target.vets.push(v.id);
+
+              workLoad[v.id].dj++;
+              if(slot==='aprem'){
+                const endT = HORAIRE_END_TIME[targetH] || 17;
+                if(endT <= 17) workLoad[v.id].fin17++;
+              }
+            });
+
+            day[slot] = slotArr;
+          });
+
+          newP[key] = day;
+        }
+
+        setAstreintes(newA);
+        setPlanning(newP);
+        setValidated(false);
+      },[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
+
+      // ── Génération astreintes seules (bouton 🌙) ──────────────────
+      // Utilisable pour réaffecter uniquement les astreintes sans toucher au planning
+      const generateAstreintes = useCallback(()=>{
+        const newA = {};
+        const dk_ = (y,m,d) => `${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+
         const dayInfo={};
         for(let d=1;d<=numDays;d++){
           const key=dk_(year,month,d);
@@ -529,141 +816,123 @@
           const isOpen=!isClosed&&!!openDays[dow];
           dayInfo[d]={key,dow,isClosed,isHoliday:isHol,isOpen};
         }
-
         const isUnavailOn=(vetId,key)=>{
           const u=unavail[key]||{};
           return (u.midi||[]).includes(vetId)||(u.soir||[]).includes(vetId)||
                  (u.matin||[]).includes(vetId)||(u.aprem||[]).includes(vetId);
         };
+        const load = Object.fromEntries(vets.map(v=>[v.id,{dj:0,weJf:0,soir:0}]));
+        Object.entries(yearlyData).forEach(([yr, months])=>{
+          const yHols = getFrenchHolidays(parseInt(yr));
+          Object.values(months).forEach(({astreintes:a})=>{
+            if(!a) return;
+            Object.keys(a).sort().forEach(key=>{
+              const [ky,km,kd]=key.split('-').map(Number);
+              const dow2=new Date(ky,km-1,kd).getDay();
+              const isHol2=yHols.has(key);
+              const isClosed2=isWE(dow2)||isHol2;
+              const vid=a[key]?.soir;
+              if(isClosed2){
+                const prev=new Date(ky,km-1,kd-1);
+                const prevKey=dk_(prev.getFullYear(),prev.getMonth(),prev.getDate());
+                const prevClosed=isWE(prev.getDay())||yHols.has(prevKey);
+                if(!prevClosed && vid && load[vid]) load[vid].weJf++;
+              } else {
+                if(vid && load[vid]) load[vid].soir++;
+              }
+              if(vid && load[vid]) load[vid].dj++;
+            });
+          });
+        });
 
-        // ── 3. Construire les blocs de jours fermés consécutifs ───────
+        // Phase 1 : blocs WE/JF
         const closedBlocs=[];
         let ci=1;
         while(ci<=numDays){
           if(dayInfo[ci].isClosed){
-            const bloc={days:[],hasHoliday:false,hasWE:false};
+            const bloc={days:[],hasHoliday:false};
             while(ci<=numDays&&dayInfo[ci].isClosed){
               bloc.days.push(ci);
               if(dayInfo[ci].isHoliday) bloc.hasHoliday=true;
-              if(!dayInfo[ci].isHoliday) bloc.hasWE=true; // Sam ou Dim
               ci++;
             }
             closedBlocs.push(bloc);
           } else { ci++; }
         }
-
-        // ── 4. Constituer les unités d'astreinte ──────────────────────
-        // Règle : si le bloc contient un JF, la veille ouvrée est incluse dans le bloc
-        // (= même véto fait la veille ET le JF → "bloc veille+JF")
-        const astreintUnits=[]; // {days:[...numéros], type:'weJf'}
-        const eveAssigned=new Set();
-
+        const weJfDays=new Set();
+        const astreintUnits=[];
         closedBlocs.forEach(bloc=>{
           const firstDay=bloc.days[0];
           if(bloc.hasHoliday){
             const eveDay=firstDay-1;
-            if(eveDay>=1&&dayInfo[eveDay]&&dayInfo[eveDay].isOpen){
-              eveAssigned.add(eveDay);
-              astreintUnits.push({days:[eveDay,...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay});
+            if(eveDay>=1&&dayInfo[eveDay]?.isOpen){
+              astreintUnits.push({days:[eveDay,...bloc.days],hasHoliday:true,eveDay});
             } else {
-              astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
+              astreintUnits.push({days:[...bloc.days],hasHoliday:true,eveDay:null});
             }
           } else {
-            // Bloc WE pur (sam+dim), pas de veille incluse
-            astreintUnits.push({days:[...bloc.days],hasHoliday:false,hasWE:true,eveDay:null});
+            astreintUnits.push({days:[...bloc.days],hasHoliday:false,eveDay:null});
           }
         });
-
-        // ── 5. Assigner les blocs WE/JF (équilibrage annuel) ──────────
-        const assignedDays=new Set();
-
+        astreintUnits.sort((a,b)=>b.days.length-a.days.length);
         astreintUnits.forEach(unit=>{
-          const isUnavailUnit=(vetId)=>
-            unit.days.some(d=>d>=1&&d<=numDays&&isUnavailOn(vetId,dayInfo[d].key));
-
-          let elig=vets.filter(v=>!isUnavailUnit(v.id));
-          if(elig.length===0) elig=[...vets]; // fallback si tout le monde est indispo
-
+          const unavailUnit=vetId=>unit.days.some(d=>d>=1&&d<=numDays&&isUnavailOn(vetId,dayInfo[d].key));
+          let elig=vets.filter(v=>!unavailUnit(v.id));
+          if(elig.length===0) elig=[...vets];
           elig.sort((a,b)=>{
-            // Priorité 1 : équilibrage des blocs WE/JF sur l'année
-            const wa=load[a.id]?.weJf||0, wb=load[b.id]?.weJf||0;
+            const wa=load[a.id].weJf,wb=load[b.id].weJf;
             if(wa!==wb) return wa-wb;
-            // Priorité 2 (règle "finit le tard") : si ce bloc inclut une veille ouvrée,
-            // on préfère le véto qui finit le plus tard ce jour-là
-            if(unit.eveDay && unit.eveDay>=1 && unit.eveDay<=numDays){
-              const eveKey=dayInfo[unit.eveDay].key;
-              const ea=getVetEndTime(a.id,eveKey), eb=getVetEndTime(b.id,eveKey);
-              if(ea!==eb) return eb-ea; // plus haute heure de fin = prioritaire
-            }
-            // Priorité 3 : charge totale
-            return (load[a.id]?.total||0)-(load[b.id]?.total||0);
+            return load[a.id].dj-load[b.id].dj;
           });
-
           const chosen=elig[0]?.id||null;
           if(chosen) load[chosen].weJf++;
-
           unit.days.forEach(d=>{
             if(d<1||d>numDays) return;
             const key=dayInfo[d].key;
             newA[key]={midi:chosen,soir:chosen};
-            if(chosen) load[chosen].total++;
-            assignedDays.add(d);
+            if(chosen) load[chosen].dj++;
+            weJfDays.add(d);
           });
         });
 
-        // ── 6. Jours de semaine restants (règle anti-consécutif) ──────
-        // Règle : éviter d'attribuer la même astreinte 2 jours consécutifs à un même véto
-        // Exceptions déjà gérées par les blocs ci-dessus.
+        // Phase 2 : soir semaine
+        const soirLoad=Object.fromEntries(vets.map(v=>[v.id,load[v.id].soir]));
         for(let d=1;d<=numDays;d++){
-          if(assignedDays.has(d)) continue;
-          if(!dayInfo[d].isOpen) continue;
-
+          if(!dayInfo[d].isOpen||weJfDays.has(d)) continue;
           const key=dayInfo[d].key;
-          const dow=dayInfo[d].dow;
-
-          // Véto du jour précédent (anti-consécutif)
-          const prevKey=d>1&&dayInfo[d-1]?dayInfo[d-1].key:null;
-          const prevVet=prevKey&&newA[prevKey]?newA[prevKey].soir:null;
-
-          // Véto du prochain jour assigné (pour éviter friction avant bloc WE/JF)
-          let nextVet=null;
-          for(let nd=d+1;nd<=numDays;nd++){
-            if(dayInfo[nd]&&newA[dayInfo[nd].key]){
-              nextVet=newA[dayInfo[nd].key].midi;
-              break;
-            }
+          let prevSoir=null,prev2Soir=null;
+          for(let pd=d-1;pd>=1;pd--){
+            if(!dayInfo[pd].isOpen||weJfDays.has(pd)) continue;
+            const ps=newA[dayInfo[pd].key]?.soir;
+            if(ps&&!prevSoir){prevSoir=ps;}
+            else if(ps&&!prev2Soir&&ps!==prevSoir){prev2Soir=ps;break;}
+            else break;
           }
-
-          let elig=vets.filter(v=>{
-            const u=unavail[key]||{};
-            return !(u.midi||[]).includes(v.id)&&!(u.soir||[]).includes(v.id);
-          });
+          let nextWeVet=null;
+          for(let nd=d+1;nd<=numDays;nd++){
+            if(weJfDays.has(nd)&&newA[dayInfo[nd].key]?.soir){nextWeVet=newA[dayInfo[nd].key].soir;break;}
+          }
+          let elig=vets.filter(v=>!isUnavailOn(v.id,key));
           if(elig.length===0) elig=[...vets];
-
           elig.sort((a,b)=>{
-            let sa=-(load[a.id]?.total||0);
-            let sb=-(load[b.id]?.total||0);
-            // Règle principale : bonus fort pour celui qui finit le plus tard ce jour
-            // (aprem_B 18h30 → +55.5 ; aprem_A 17h → +51 ; matin_A 12h30 → +37.5 ; matin_B 11h30 → +34.5)
-            const ea=getVetEndTime(a.id,key), eb=getVetEndTime(b.id,key);
-            sa+=ea*3; sb+=eb*3;
-            // Pénalité forte : même véto que la veille → no-consécutif
-            if(a.id===prevVet) sa-=25;
-            if(b.id===prevVet) sb-=25;
-            // Pénalité : même véto que le prochain bloc (fort le vendredi)
-            if(a.id===nextVet) sa-=(dow===5?15:5);
-            if(b.id===nextVet) sb-=(dow===5?15:5);
-            return sb-sa;
+            const sa=soirLoad[a.id],sb=soirLoad[b.id];
+            if(sa!==sb) return sa-sb;
+            let penA=0,penB=0;
+            if(a.id===prevSoir) penA+=30;
+            if(b.id===prevSoir) penB+=30;
+            if(a.id===prev2Soir) penA+=10;
+            if(b.id===prev2Soir) penB+=10;
+            if(a.id===nextWeVet) penA+=12;
+            if(b.id===nextWeVet) penB+=12;
+            return penA-penB;
           });
-
           const chosen=elig[0]?.id||null;
           newA[key]={midi:chosen,soir:chosen};
-          if(chosen) load[chosen].total++;
-          assignedDays.add(d);
+          if(chosen){soirLoad[chosen]++;load[chosen].dj++;}
         }
 
         setAstreintes(newA);
-      },[vets,planning,unavail,openDays,numDays,year,month,yearlyData,holidays]);
+      },[vets,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
       const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
@@ -745,40 +1014,7 @@
       },[planning,getAlerts,year,month]);
       const totalAlerts = useMemo(()=>Object.values(allAlerts).reduce((s,a)=>s+a.length,0),[allAlerts]);
 
-      // Génération
-      const generate = useCallback(()=>{
-        const newP={};
-        const wl=Object.fromEntries(vets.map(v=>[v.id,0]));
-        for (let d=1;d<=numDays;d++){
-          const key=dk(year,month,d), dow=dowJS(year,month,d);
-          if (!openDays[dow] || holidays.has(key)){newP[key]=null;continue;}
-          const we=isWE(dow);
-          const dayU=unavail[key]||{matin:[],aprem:[]};
-          const day={};
-
-          ['matin','aprem'].forEach(slot=>{
-            const horaireA = slot==='matin' ? 'matin_A' : 'aprem_A';
-            const horaireB = slot==='matin' ? 'matin_B' : 'aprem_B';
-            const uSet=new Set(dayU[slot]||[]);
-            const exclSet=new Set(rules.filter(r=>r.type==='never_slot'&&(r.slot===slot||r.slot==='all')&&r.dayOfWeek===dow&&parityMatch(r.weekParity,year,month,d)).map(r=>r.vetId));
-            const elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
-            elig.sort((a,b)=>wl[a.id]-wl[b.id]);
-            const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&(r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)));
-            const need=minR?minR.min:1;
-            const asgn=elig.slice(0,need);
-            // répartir les vétérinaires demandés sur les sous-créneaux (A/B)
-            const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
-            asgn.forEach((v, idx)=>{
-              const target = slotArrTemplate[idx % slotArrTemplate.length];
-              target.vets.push(v.id);
-              wl[v.id]++;
-            });
-            day[slot]=slotArrTemplate;
-          });
-          newP[key]=day;
-        }
-        setPlanning(newP); setValidated(false);
-      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays]);
+      // (generate() est remplacé par generateAll() ci-dessus — voir GÉNÉRATION UNIFIÉE)
 
       const updateSubSlot = useCallback((datekey, slot, horaireId, updater)=>{
         setPlanning(prev=>{
@@ -880,7 +1116,7 @@
               vets={vets} planning={planning} unavail={unavail}
               allAlerts={allAlerts} totalAlerts={totalAlerts}
               openDays={openDays} validated={validated}
-              onChangeMonth={changeMonth} onGenerate={generate}
+              onChangeMonth={changeMonth} onGenerate={generateAll}
               holidays={holidays}
               onValidate={()=>{
                 setValidated(true);
@@ -1006,8 +1242,8 @@
               <button onClick={()=>setShowU(v=>!v)} className="btn-ghost">
                 📋 Indispos {totalU>0&&<span style={{color:'#d97706',fontWeight:700,marginLeft:2}}>({totalU})</span>}
               </button>
-              <button onClick={onGenerate} className="btn-teal">⚡ Générer</button>
-              <button onClick={onGenerateAstreintes} className="btn-outline" style={{borderColor:'#8b5cf6',color:'#7c3aed'}}>🌙 Astreintes</button>
+              <button onClick={onGenerate} className="btn-teal">⚡ Générer planning + astreintes</button>
+              <button onClick={onGenerateAstreintes} className="btn-outline" style={{borderColor:'#8b5cf6',color:'#7c3aed'}}>🌙 Recalc. astreintes seules</button>
               {hasP&&(
                 <button onClick={onValidate} disabled={validated} className="btn-success">
                   {validated?'✓ Validé':'✓ Valider'}
