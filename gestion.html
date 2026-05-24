@@ -181,81 +181,69 @@
   <script type="text/babel">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
-    // ─── Couche persistance KV (Cloudflare) + IDB (cache local) ──
-    // KV  = source de vérité partagée entre tous les utilisateurs
-    // IDB = cache local pour accélération du chargement (lecture immédiate)
-    //
-    // Au démarrage : on lit IDB pour afficher immédiatement, puis on
-    //   charge KV en arrière-plan et on fusionne (KV prime sur IDB).
-    // À la sauvegarde : écriture IDB + KV en parallèle (1 seul write KV).
-
-    // ── IndexedDB (cache local) ───────────────────────────────────
-    const DB_NAME   = 'sanceavet_db';
+    // ─── Persistance IndexedDB ─────────────────────────────────
+    const DB_NAME = 'sanceavet_db';
     const DB_VERSION = 1;
-    const STORE     = 'planning_store';
-    const IDB_KEY   = 'all_data';
+    const STORE = 'planning_store';
 
     function openDB() {
       return new Promise((resolve, reject) => {
         const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = e => {
-          const db = e.target.result;
-          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
-        };
+        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
         req.onsuccess = e => resolve(e.target.result);
-        req.onerror   = () => reject(req.error);
+        req.onerror = () => reject(req.error);
       });
     }
-    async function idbLoad() {
-      try {
-        const db  = await openDB();
-        return new Promise(resolve => {
-          const tx  = db.transaction(STORE, 'readonly');
-          const req = tx.objectStore(STORE).get(IDB_KEY);
-          req.onsuccess = () => resolve(req.result ?? null);
-          req.onerror   = () => resolve(null);
-        });
-      } catch { return null; }
+    async function idbGet(key) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = () => resolve(req.result ?? null);
+        req.onerror = () => resolve(null);
+      });
     }
-    async function idbSave(data) {
-      try {
-        const db = await openDB();
-        return new Promise(resolve => {
-          const tx = db.transaction(STORE, 'readwrite');
-          tx.objectStore(STORE).put(data, IDB_KEY);
-          tx.oncomplete = resolve;
-          tx.onerror    = resolve;
-        });
-      } catch {}
+    async function idbSet(key, val) {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).put(val, key);
+        tx.oncomplete = resolve;
+        tx.onerror = resolve;
+      });
+    }
+    async function idbGetAll() {
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readonly');
+        const store = tx.objectStore(STORE);
+        const keys = [], vals = [];
+        store.openKeyCursor().onsuccess = e => {
+          const c = e.target.result;
+          if(c){ keys.push(c.key); c.continue(); }
+        };
+        store.openCursor().onsuccess = e => {
+          const c = e.target.result;
+          if(c){ vals.push([c.key, c.value]); c.continue(); }
+        };
+        tx.oncomplete = () => resolve(Object.fromEntries(vals));
+        tx.onerror = () => resolve({});
+      });
     }
     async function idbClear() {
-      try {
-        const db = await openDB();
-        return new Promise(resolve => {
-          const tx = db.transaction(STORE, 'readwrite');
-          tx.objectStore(STORE).delete(IDB_KEY);
-          tx.oncomplete = resolve;
-        });
-      } catch {}
+      const db = await openDB();
+      return new Promise((resolve) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.objectStore(STORE).clear();
+        tx.oncomplete = resolve;
+      });
     }
 
-    // ── KV API (Cloudflare) ───────────────────────────────────────
-    // Auth gérée par Cloudflare Access — pas de token côté client
-    async function kvLoad() {
-      const res = await fetch('/api/data');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    }
-    async function kvSave(data) {
-      const res = await fetch('/api/data', {
-        method : 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body   : JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    }
-    async function kvClear() {
-      await fetch('/api/data', { method: 'DELETE' });
+    // Fallback localStorage pour init synchrone
+    const LS_KEY = 'sanceavet_v2';
+    function lsLoad(key, fallback) {
+      try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback; }
+      catch(e) { return fallback; }
     }
 
     // ─── Constantes ────────────────────────────────────────────
@@ -263,12 +251,13 @@
     const JS_FULL = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
     const MOIS    = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const PALETTE = ['#0d9488','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#0891b2','#f97316','#16a34a','#be185d','#7c3aed'];
+    const VALID_ID = 'Sancea2026';
 
     const HORAIRES = {
-      matin_A: { id:'matin_A', label:'8h30 – 11h30',  slot:'matin', short:'8h30-11h30' },
-      matin_B: { id:'matin_B', label:'10h30 – 13h30', slot:'matin', short:'10h30-13h30' },
-      aprem_A: { id:'aprem_A', label:'13h – 17h',     slot:'aprem', short:'13h-17h' },
-      aprem_B: { id:'aprem_B', label:'15h – 19h',     slot:'aprem', short:'15h-19h' },
+      matin_A: { id:'matin_A', label:'8h30 – 12h30', slot:'matin', short:'8h30-12h30' },
+      matin_B: { id:'matin_B', label:'8h30 – 11h30', slot:'matin', short:'8h30-11h30' },
+      aprem_A: { id:'aprem_A', label:'13h – 17h',    slot:'aprem', short:'13h-17h' },
+      aprem_B: { id:'aprem_B', label:'14h30 – 18h30',slot:'aprem', short:'14h30-18h30' },
     };
 
     // ─── Helpers ───────────────────────────────────────────────
@@ -344,6 +333,15 @@
       return ruleParity===weekParity(y,m,d);
     }
 
+    // dayType peut être 'all','weekday','weekend' ou 'dow' (jour spécifique, nécessite r.dayOfWeek)
+    function dayTypeMatch(r, dow, we) {
+      if (r.dayType==='all') return true;
+      if (r.dayType==='weekday') return !we;
+      if (r.dayType==='weekend') return we;
+      if (r.dayType==='dow') return r.dayOfWeek===dow;
+      return false;
+    }
+
     // Planning vide pour un slot
     const emptySlot = (horaire) => ({ horaire, vets:[] });
     const emptyDay  = () => ({
@@ -356,6 +354,36 @@
       if (Array.isArray(raw)) return raw;
       return [raw];
     };
+
+    // ─── Protection ────────────────────────────────────────────
+    function ProtectedApp() {
+      const [ok,setOk]       = useState(false);
+      const [id,setId]       = useState('');
+      const [err,setErr]     = useState('');
+      const handle = e => {
+        e.preventDefault();
+        id===VALID_ID ? (setOk(true),setErr('')) : setErr('Identifiant incorrect.');
+      };
+      if (!ok) return (
+        <div style={{minHeight:'60vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div className="g-card" style={{maxWidth:420,width:'100%',textAlign:'center',padding:36}}>
+            <div style={{fontSize:36,marginBottom:12}}>🔒</div>
+            <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:22,marginBottom:8,color:'#1f2937'}}>Accès Gestion</h1>
+            <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Saisissez l'identifiant interne pour accéder au planning.</p>
+            {err&&<p style={{color:'#ef4444',fontSize:13,marginBottom:12}}>{err}</p>}
+            <form onSubmit={handle}>
+              <input type="password" value={id} onChange={e=>setId(e.target.value)}
+                placeholder="Identifiant…" className="g-input"
+                style={{width:'100%',marginBottom:12,textAlign:'center',letterSpacing:'0.15em'}} autoComplete="off"/>
+              <button type="submit" className="btn-teal" style={{width:'100%',justifyContent:'center',padding:'10px 0'}}>
+                Accéder au planning
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+      return <App />;
+    }
 
     // ─── App ───────────────────────────────────────────────────
     const DEFAULT_VETS = [
@@ -392,75 +420,47 @@
       const [gclientId, setGclientId] = useState('');
       const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
-      const [kvStatus,  setKvStatus]  = useState('loading'); // 'loading'|'ok'|'error'
       const [loaded,    setLoaded]    = useState(false);
 
-      // ── Fonction qui applique un blob de données aux états ─────
-      const applyData = useCallback((d) => {
-        if (!d || typeof d !== 'object') return;
-        if (d.vets)                       setVets(d.vets);
-        if (d.rules)                      setRules(d.rules);
-        if (d.openDays)                   setOpenDays(d.openDays);
-        if (d.planning)                   setPlanning(d.planning);
-        if (d.unavail)                    setUnavail(d.unavail);
-        if (d.validated !== undefined)    setValidated(d.validated);
-        if (d.yearlyData)                 setYearlyData(d.yearlyData);
-        if (d.astreintes)                 setAstreintes(d.astreintes);
-        if (d.nav)                        { setYear(d.nav.year); setMonth(d.nav.month); }
-        if (d.gclientId)                  setGclientId(d.gclientId);
-        if (d.calId)                      setCalId(d.calId);
-      }, []);
-
-      // ── Chargement au démarrage : IDB d'abord, KV ensuite ──────
-      useEffect(() => {
-        (async () => {
-          // 1. Cache local IDB → affichage immédiat
-          const cached = await idbLoad();
-          if (cached) { applyData(cached); setLoaded(true); }
-
-          // 2. KV → source de vérité (remplace IDB si données plus récentes)
-          try {
-            const kv = await kvLoad();
-            if (kv && Object.keys(kv).length > 0) {
-              applyData(kv);
-              await idbSave(kv);  // mettre à jour le cache local
-            }
-            setKvStatus('ok');
-          } catch (err) {
-            console.warn('KV indisponible, mode cache local :', err.message);
-            setKvStatus('error');
-          }
-
+      // ── Chargement IndexedDB au démarrage ─────────────────────
+      useEffect(()=>{
+        (async()=>{
+          const d = await idbGetAll();
+          if(d.vets)       setVets(d.vets);
+          if(d.rules)      setRules(d.rules);
+          if(d.openDays)   setOpenDays(d.openDays);
+          if(d.planning)   setPlanning(d.planning);
+          if(d.unavail)    setUnavail(d.unavail);
+          if(d.validated !== undefined) setValidated(d.validated);
+          if(d.yearlyData) setYearlyData(d.yearlyData);
+          if(d.astreintes) setAstreintes(d.astreintes);
+          if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
+          if(d.gclientId)  setGclientId(d.gclientId);
+          if(d.calId)      setCalId(d.calId);
           setLoaded(true);
         })();
-      }, []);  // eslint-disable-line
+      },[]);
 
-      // ── Auto-save : IDB + KV en parallèle (debounce 1,2s) ──────
+      // ── Auto-save IndexedDB ───────────────────────────────────
       const saveTimer = useRef(null);
       const triggerSave = useCallback((data) => {
-        if (!data.loaded) return;
+        if(!data.loaded) return;
         clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(async () => {
-          const blob = {
-            vets: data.vets, rules: data.rules, openDays: data.openDays,
-            planning: data.planning, unavail: data.unavail, validated: data.validated,
-            yearlyData: data.yearlyData, astreintes: data.astreintes,
-            nav: { year: data.year, month: data.month },
-            gclientId: data.gclientId, calId: data.calId,
-          };
-          // Écriture parallèle IDB (cache local) + KV (partagé)
-          const [, kvErr] = await Promise.all([
-            idbSave(blob),
-            kvSave(blob).then(() => null).catch(e => e),
-          ]);
-          if (kvErr) {
-            setKvStatus('error');
-          } else {
-            setKvStatus('ok');
-            setSaveFlash(true);
-            setTimeout(() => setSaveFlash(false), 1800);
-          }
-        }, 1200);
+          await idbSet('vets',      data.vets);
+          await idbSet('rules',     data.rules);
+          await idbSet('openDays',  data.openDays);
+          await idbSet('planning',  data.planning);
+          await idbSet('unavail',   data.unavail);
+          await idbSet('validated', data.validated);
+          await idbSet('yearlyData',data.yearlyData);
+          await idbSet('astreintes',data.astreintes);
+          await idbSet('nav',       {year:data.year, month:data.month});
+          await idbSet('gclientId', data.gclientId);
+          await idbSet('calId',     data.calId);
+          setSaveFlash(true);
+          setTimeout(()=>setSaveFlash(false), 1800);
+        }, 800);
       }, []);
 
       useEffect(()=>{
@@ -487,16 +487,23 @@
           reader.onload = async ev => {
             try {
               const d = JSON.parse(ev.target.result);
-              applyData(d);
-              // Pousser immédiatement vers KV
-              await Promise.all([idbSave(d), kvSave(d).catch(()=>{})]);
-              alert('✅ Import réussi et synchronisé !');
+              if(d.vets)       setVets(d.vets);
+              if(d.rules)      setRules(d.rules);
+              if(d.openDays)   setOpenDays(d.openDays);
+              if(d.planning)   setPlanning(d.planning);
+              if(d.unavail)    setUnavail(d.unavail);
+              if(d.validated !== undefined) setValidated(d.validated);
+              if(d.yearlyData) setYearlyData(d.yearlyData);
+              if(d.astreintes) setAstreintes(d.astreintes);
+              if(d.gclientId)  setGclientId(d.gclientId);
+              if(d.calId)      setCalId(d.calId);
+              alert('✅ Import réussi !');
             } catch(err){ alert('❌ Fichier JSON invalide'); }
           };
           reader.readAsText(file);
         };
         input.click();
-      },[applyData]);
+      },[]);
 
 
       // ── Génération des astreintes ──────────────────────────────
@@ -569,61 +576,18 @@
         }
 
         // ── 4. Constituer les unités d'astreinte ──────────────────────
-        // Règles :
-        //  • JF quelconque : la veille ouvrée est incluse dans le même bloc (même véto)
-        //  • JF un lundi   : même véto pour Sam + Dim + Lun (grand WE)
-        //  • JF un samedi  : même véto pour Ven + Sam + Dim (grand WE)
-        //  Ces cas sont naturellement couverts par le regroupement des jours fermés
-        //  consécutifs + ajout de la veille ouvrée.
-        //  Cas particulier cross-mois : JF lundi = jour 1 du mois
-        //    → le Sam/Dim précédents sont dans le mois précédent ; on les pré-pend ici.
+        // Règle : si le bloc contient un JF, la veille ouvrée est incluse dans le bloc
+        // (= même véto fait la veille ET le JF → "bloc veille+JF")
         const astreintUnits=[]; // {days:[...numéros], type:'weJf'}
         const eveAssigned=new Set();
 
         closedBlocs.forEach(bloc=>{
           const firstDay=bloc.days[0];
           if(bloc.hasHoliday){
-            // ── Cas standard : chercher la veille dans le mois courant ──
             const eveDay=firstDay-1;
             if(eveDay>=1&&dayInfo[eveDay]&&dayInfo[eveDay].isOpen){
               eveAssigned.add(eveDay);
               astreintUnits.push({days:[eveDay,...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay});
-            } else if(firstDay===1){
-              // ── Cas cross-mois : premier jour du mois est un JF (ou suivi d'un JF lundi)
-              //    Reconstituer le grand WE depuis le mois précédent
-              const prevMonthDate = new Date(year, month, 0); // dernier jour du mois précédent
-              const prevMonthLastDay = prevMonthDate.getDate();
-              const prevMonth = prevMonthDate.getMonth();
-              const prevYear  = prevMonthDate.getFullYear();
-              const prevHols  = getFrenchHolidays(prevYear);
-              // Chercher combien de jours WE/JF précèdent (remonte jusqu'à vendredi inclus)
-              const extraDays=[]; // jours négatifs ou à représenter comme "avant mois"
-              let pd=prevMonthLastDay;
-              while(pd>=1){
-                const pDate=new Date(prevYear,prevMonth,pd);
-                const pDow=pDate.getDay();
-                const pKey=dk_(prevYear,prevMonth,pd);
-                if(isWE(pDow)||prevHols.has(pKey)){
-                  extraDays.unshift({prevYear,prevMonth,pd,pKey,pDow});
-                  pd--;
-                } else {
-                  // Jour ouvré : c'est la veille potentielle
-                  const prevOpenKey=dk_(prevYear,prevMonth,pd);
-                  eveAssigned.add('prev:'+prevOpenKey);
-                  extraDays.unshift({prevYear,prevMonth,pd,pKey:prevOpenKey,pDow,isEve:true});
-                  break;
-                }
-              }
-              if(extraDays.length>0){
-                // Stocker les infos pour l'assignation (on marque les jours hors-mois avec offset négatif)
-                astreintUnits.push({
-                  days:[...bloc.days],
-                  prevDays:extraDays, // jours du mois précédent
-                  hasHoliday:true, hasWE:true, eveDay:null, crossMonth:true
-                });
-              } else {
-                astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
-              }
             } else {
               astreintUnits.push({days:[...bloc.days],hasHoliday:true,hasWE:bloc.hasWE,eveDay:null});
             }
@@ -633,8 +597,9 @@
           }
         });
 
-        // ── 5. Assigner les blocs WE/JF (équilibrage annuel) ──────────
+        // ── 5. Assigner les blocs WE/JF (équilibrage annuel + anti-consécutif inter-blocs) ──────
         const assignedDays=new Set();
+        let lastBlockVet=null; // dernier véto ayant eu un bloc WE/JF → éviter enchaînement
 
         astreintUnits.forEach(unit=>{
           const isUnavailUnit=(vetId)=>
@@ -644,17 +609,26 @@
           if(elig.length===0) elig=[...vets]; // fallback si tout le monde est indispo
 
           elig.sort((a,b)=>{
-            // Priorité 1 : équilibrage des blocs WE/JF sur l'année
             const wa=load[a.id]?.weJf||0, wb=load[b.id]?.weJf||0;
+            // Priorité 1 : équilibrage des blocs WE/JF — pondéré par la durée du bloc
             if(wa!==wb) return wa-wb;
+            // À égalité : pénaliser le véto qui vient juste d'avoir un bloc WE/JF (anti-enchaînement)
+            const pa = a.id===lastBlockVet ? 1 : 0;
+            const pb = b.id===lastBlockVet ? 1 : 0;
+            if(pa!==pb) return pa-pb;
             // Priorité 2 : charge totale
-            return (load[a.id]?.total||0)-(load[b.id]?.total||0);
+            const ta=load[a.id]?.total||0, tb=load[b.id]?.total||0;
+            if(ta!==tb) return ta-tb;
+            // Priorité 3 : brassage aléatoire pour éviter biais d'ordre du tableau vets
+            return Math.random()-0.5;
           });
 
           const chosen=elig[0]?.id||null;
-          if(chosen) load[chosen].weJf++;
+          if(chosen){
+            load[chosen].weJf++;
+            lastBlockVet=chosen;
+          }
 
-          // Jours dans le mois courant
           unit.days.forEach(d=>{
             if(d<1||d>numDays) return;
             const key=dayInfo[d].key;
@@ -662,19 +636,10 @@
             if(chosen) load[chosen].total++;
             assignedDays.add(d);
           });
-
-          // Jours cross-mois (grand WE dans le mois précédent)
-          if(unit.crossMonth && unit.prevDays){
-            unit.prevDays.forEach(({pKey})=>{
-              newA[pKey]={midi:chosen,soir:chosen};
-              if(chosen) load[chosen].total++;
-            });
-          }
         });
 
-        // ── 6. Jours de semaine restants (règle anti-consécutif) ──────
-        // Règle : éviter d'attribuer la même astreinte 2 jours consécutifs à un même véto
-        // Exceptions déjà gérées par les blocs ci-dessus.
+        // ── 6. Jours de semaine restants (règle anti-consécutif renforcée) ──────
+        // Règle : fortement éviter d'attribuer l'astreinte 2+ jours consécutifs au même véto
         for(let d=1;d<=numDays;d++){
           if(assignedDays.has(d)) continue;
           if(!dayInfo[d].isOpen) continue;
@@ -682,11 +647,15 @@
           const key=dayInfo[d].key;
           const dow=dayInfo[d].dow;
 
-          // Véto du jour précédent (anti-consécutif)
+          // Véto du jour J-1
           const prevKey=d>1&&dayInfo[d-1]?dayInfo[d-1].key:null;
           const prevVet=prevKey&&newA[prevKey]?newA[prevKey].soir:null;
 
-          // Véto du prochain jour assigné (pour éviter friction avant bloc WE/JF)
+          // Véto du jour J-2 (pour détecter 2 jours consécutifs)
+          const prev2Key=d>2&&dayInfo[d-2]?dayInfo[d-2].key:null;
+          const prev2Vet=prev2Key&&newA[prev2Key]?newA[prev2Key].soir:null;
+
+          // Véto du prochain jour assigné (friction avant bloc WE/JF)
           let nextVet=null;
           for(let nd=d+1;nd<=numDays;nd++){
             if(dayInfo[nd]&&newA[dayInfo[nd].key]){
@@ -704,12 +673,21 @@
           elig.sort((a,b)=>{
             let sa=-(load[a.id]?.total||0);
             let sb=-(load[b.id]?.total||0);
-            // Pénalité forte : même véto que la veille → no-consécutif
-            if(a.id===prevVet) sa-=25;
-            if(b.id===prevVet) sb-=25;
-            // Pénalité : même véto que le prochain bloc (fort le vendredi)
-            if(a.id===nextVet) sa-=(dow===5?15:5);
-            if(b.id===nextVet) sb-=(dow===5?15:5);
+
+            // ── Pénalité forte : J-1 même véto (consécutif simple)
+            if(a.id===prevVet) sa-=60;
+            if(b.id===prevVet) sb-=60;
+
+            // ── Pénalité très forte : J-2 ET J-1 même véto (3 jours consécutifs)
+            if(prevVet&&a.id===prevVet&&a.id===prev2Vet) sa-=150;
+            if(prevVet&&b.id===prevVet&&b.id===prev2Vet) sb-=150;
+
+            // ── Pénalité modérée : friction avant bloc WE/JF (renforcée le vendredi)
+            if(a.id===nextVet) sa-=(dow===5?25:10);
+            if(b.id===nextVet) sb-=(dow===5?25:10);
+
+            // ── Brassage sur égalité
+            if(sa===sb) return Math.random()-0.5;
             return sb-sa;
           });
 
@@ -733,7 +711,7 @@
           r.type==='horaire_rule' &&
           r.slot===slot &&
           parityMatch(r.weekParity,y,m,d) &&
-          (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
+          dayTypeMatch(r,dow,we)
         );
         if (r) return r.horaire;
         return slot==='matin'?'matin_A':'aprem_A';
@@ -767,7 +745,7 @@
           const minR=rules.find(r=>
             r.type==='min_per_slot' && r.slot===slot &&
             parityMatch(r.weekParity,y,m,d) &&
-            (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
+            dayTypeMatch(r,dow,we)
           );
           if (minR&&allVets.length<minR.min)
             alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : min. ${minR.min} véto(s) requis (${allVets.length} assigné(s))`});
@@ -791,37 +769,6 @@
           });
         });
 
-        // Samedi : aprem_B interdit + matin_B incompatible avec aprem_A
-          if(dow===6){
-            toSlotArr(dayPlanning.aprem).forEach(sub=>{
-              if(sub.horaire==='aprem_B'&&(sub.vets||[]).length>0){
-                const names=(sub.vets||[]).map(vid=>vets.find(x=>x.id===vid)?.name||'?').join(', ');
-                alerts.push({level:'error',slot:'aprem',msg:`Samedi : seul aprem_A (13h–17h) autorisé — ${names} sur aprem_B`});
-              }
-            });
-            const matinBSam=new Set(toSlotArr(dayPlanning.matin).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]));
-            toSlotArr(dayPlanning.aprem).forEach(sub=>{
-              (sub.vets||[]).forEach(vid=>{
-                if(matinBSam.has(vid)){
-                  const v=vets.find(x=>x.id===vid);
-                  alerts.push({level:'error',slot:'aprem',msg:`${v?v.name:'?'} fait matin 10h30–13h30 ET aprem samedi (chevauchement 13h)`});
-                }
-              });
-            });
-          }
-
-        // Vérif règles finish_17h (fin à 17h)
-          const finish17hRules=rules.filter(r=>r.type==='finish_17h'&&r.dayOfWeek===dow&&parityMatch(r.weekParity,y,m,d));
-          finish17hRules.forEach(r=>{
-            const apremArr=toSlotArr(dayPlanning.aprem);
-            const isOnB=apremArr.some(sub=>sub.horaire==='aprem_B'&&(sub.vets||[]).includes(r.vetId));
-            const isOnA=apremArr.some(sub=>sub.horaire==='aprem_A'&&(sub.vets||[]).includes(r.vetId));
-            if(isOnB&&!isOnA){
-              const v=vets.find(x=>x.id===r.vetId);
-              alerts.push({level:'warn',slot:'aprem',msg:`${v?v.name:'?'} devrait finir à 17h ce jour (règle fin 17h)`});
-            }
-          });
-
         return alerts;
       },[rules,vets,unavail,openDays,resolveHoraire,holidays]);
 
@@ -837,133 +784,46 @@
       const generate = useCallback(()=>{
         const newP={};
         const wl=Object.fromEntries(vets.map(v=>[v.id,0]));
-
-        // ── Charge cumulée aprem_A (fin 17h) depuis données annuelles validées ──
-        // Permet d'équilibrer les fins à 17h sur toute l'année
-        const apremALoad=Object.fromEntries(vets.map(v=>[v.id,0]));
-        Object.entries(yearlyData).forEach(([yr,months])=>{
-          Object.entries(months).forEach(([mIdx,{planning:p}])=>{
-            if(!p) return;
-            if(+yr===year && +mIdx>=month) return; // ne compter que les mois passés
-            Object.values(p).forEach(dp=>{
-              if(!dp) return;
-              toSlotArr(dp.aprem).forEach(sub=>{
-                if(sub.horaire==='aprem_A') (sub.vets||[]).forEach(vid=>{
-                  if(apremALoad[vid]!==undefined) apremALoad[vid]++;
-                });
-              });
-            });
-          });
-        });
-
         for (let d=1;d<=numDays;d++){
           const key=dk(year,month,d), dow=dowJS(year,month,d);
           if (!openDays[dow] || holidays.has(key)){newP[key]=null;continue;}
           const we=isWE(dow);
           const dayU=unavail[key]||{matin:[],aprem:[]};
           const day={};
-          // Mémorise qui est affecté le matin pour privilégier les journées entières
-          const matinAssigned=[];
 
           ['matin','aprem'].forEach(slot=>{
             const horaireA = slot==='matin' ? 'matin_A' : 'aprem_A';
             const horaireB = slot==='matin' ? 'matin_B' : 'aprem_B';
             const uSet=new Set(dayU[slot]||[]);
             const exclSet=new Set(rules.filter(r=>r.type==='never_slot'&&(r.slot===slot||r.slot==='all')&&r.dayOfWeek===dow&&parityMatch(r.weekParity,year,month,d)).map(r=>r.vetId));
-            const elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
-            const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&(r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)));
+            let elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
+            elig.sort((a,b)=>wl[a.id]-wl[b.id]);
+            const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&dayTypeMatch(r,dow,we));
             const need=minR?minR.min:1;
-
-            let asgn;
-            if(slot==='aprem' && matinAssigned.length>0){
-              // ── Journées entières prioritaires ─────────────────────────
-              const fullDayElig = elig.filter(v=>matinAssigned.includes(v.id));
-              const othersElig  = elig.filter(v=>!matinAssigned.includes(v.id));
-              fullDayElig.sort((a,b)=>wl[a.id]-wl[b.id]);
-              othersElig.sort((a,b)=>wl[a.id]-wl[b.id]);
-              asgn = [...fullDayElig, ...othersElig].slice(0, need);
-            } else {
-              elig.sort((a,b)=>wl[a.id]-wl[b.id]);
-              asgn=elig.slice(0,need);
-            }
-
-            if(slot==='matin') matinAssigned.push(...asgn.map(v=>v.id));
-
-            const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
-
-            if(slot==='aprem'){
-              // ── Samedi : uniquement aprem_A (13h–17h) ──────────────────
-              const isSaturday = dow === 6;
-
-              // ── Samedi seulement : matin B (10h30–13h30) chevauche aprem_A (13h–17h)
-              //    → les vétos en matin_B ne peuvent pas faire l'aprem le samedi
-              const matinBVets = isSaturday
-                ? new Set((day.matin||[]).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]))
-                : new Set(); // en semaine : pas de restriction
-
-              const eligAprem = asgn.filter(v=>!matinBVets.has(v.id));
-
-              // ── Règles finish_17h + équilibrage des fins à 17h ─────────
-              const finish17hSet = new Set(
-                rules.filter(r=>
-                  r.type==='finish_17h' &&
-                  r.dayOfWeek===dow &&
-                  parityMatch(r.weekParity,year,month,d)
-                ).map(r=>r.vetId)
-              );
-              const forced = eligAprem.filter(v=>finish17hSet.has(v.id));
-              const free   = eligAprem.filter(v=>!finish17hSet.has(v.id));
-
-              if(isSaturday){
-                // Samedi : tout le monde sur aprem_A, pas d'aprem_B
-                free.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
-                const samediElig=[...forced,...free];
-                slotArrTemplate[1].vets=[];
-                samediElig.forEach(v=>{
-                  slotArrTemplate[0].vets.push(v.id);
-                  wl[v.id]++;
-                  apremALoad[v.id]=(apremALoad[v.id]||0)+1;
-                });
-              } else {
-                // En semaine : les vétos en matin_B sont préférentiellement mis sur aprem_B
-                // (10h30–13h30 + 15h–19h = journée cohérente sans chevauchement)
-                const matinBWeekday = new Set((day.matin||[]).flatMap(sub=>sub.horaire==='matin_B'?(sub.vets||[]):[]));
-                const preferApremB = free.filter(v=>matinBWeekday.has(v.id));
-                const preferApremA = free.filter(v=>!matinBWeekday.has(v.id));
-                preferApremA.sort((a,b)=>(apremALoad[a.id]||0)-(apremALoad[b.id]||0));
-                preferApremB.sort((a,b)=>wl[a.id]-wl[b.id]);
-
-                forced.forEach(v=>{
-                  slotArrTemplate[0].vets.push(v.id); // aprem_A (13h–17h)
-                  wl[v.id]++;
-                  apremALoad[v.id]=(apremALoad[v.id]||0)+1;
-                });
-                // Affecter d'abord aprem_A aux non-matinB, puis aprem_B aux matinB
-                preferApremA.forEach((v,idx)=>{
-                  const target=slotArrTemplate[idx%2];
-                  target.vets.push(v.id);
-                  wl[v.id]++;
-                  if(target.horaire==='aprem_A') apremALoad[v.id]=(apremALoad[v.id]||0)+1;
-                });
-                preferApremB.forEach(v=>{
-                  slotArrTemplate[1].vets.push(v.id); // aprem_B (15h–19h)
-                  wl[v.id]++;
-                });
+            let asgn=elig.slice(0,need);
+            // ── Règle fixe : au moins 1 véto par slot ouvert (la clinique maintient ses horaires)
+            if(asgn.length===0){
+              // 1er fallback : ignorer les exclusions never_slot mais respecter les indispos
+              const fb1=vets.filter(v=>!uSet.has(v.id)).sort((a,b)=>wl[a.id]-wl[b.id]);
+              if(fb1.length>0) asgn=fb1.slice(0,1);
+              else {
+                // 2e fallback absolu : ignorer tout
+                asgn=[...vets].sort((a,b)=>wl[a.id]-wl[b.id]).slice(0,1);
               }
-            } else {
-              asgn.forEach((v,idx)=>{
-                const target=slotArrTemplate[idx%slotArrTemplate.length];
-                target.vets.push(v.id);
-                wl[v.id]++;
-              });
             }
-
+            // répartir les vétérinaires demandés sur les sous-créneaux (A/B)
+            const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
+            asgn.forEach((v, idx)=>{
+              const target = slotArrTemplate[idx % slotArrTemplate.length];
+              target.vets.push(v.id);
+              wl[v.id]++;
+            });
             day[slot]=slotArrTemplate;
           });
           newP[key]=day;
         }
         setPlanning(newP); setValidated(false);
-      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays,yearlyData]);
+      },[vets,rules,unavail,openDays,numDays,year,month,resolveHoraire,holidays]);
 
       const updateSubSlot = useCallback((datekey, slot, horaireId, updater)=>{
         setPlanning(prev=>{
@@ -1026,28 +886,14 @@
               <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:'#1f2937',marginBottom:4}}>
                 Planning vétérinaire
               </h1>
-              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · journées entières privilégiées · jours fériés avec veille · grand WE automatique · sauvegarde automatique</p>
+              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · semaines paires/impaires · jours fériés automatiques · sauvegarde automatique</p>
             </div>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-              {/* Indicateur connexion KV */}
-              {kvStatus==='loading'&&(
-                <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#9ca3af',
-                  background:'#f9fafb',border:'1px solid #e5e7eb',borderRadius:20,padding:'4px 12px'}}>
-                  ⏳ Connexion…
-                </span>
-              )}
-              {kvStatus==='error'&&(
-                <span title="Données non synchronisées avec le serveur. Mode hors-ligne."
-                  style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#dc2626',
-                  background:'#fef2f2',border:'1px solid #fecaca',borderRadius:20,padding:'4px 12px',cursor:'default'}}>
-                  ⚠️ Hors-ligne
-                </span>
-              )}
-              {saveFlash&&kvStatus==='ok'&&(
+              {saveFlash&&(
                 <span style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:12,color:'#059669',
                   background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:20,padding:'4px 12px',
                   animation:'fadeIn .2s ease',fontWeight:500}}>
-                  ☁️ Synchronisé
+                  ✓ Sauvegardé
                 </span>
               )}
               <button onClick={exportJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#0d9488',borderColor:'#99f6e4'}}>
@@ -1825,17 +1671,18 @@
       const [minN,   setMinN]   = useState(2);
       const [vetId,  setVetId]  = useState('');
       const [dow,    setDow]    = useState(1);
+      const [dowRule,setDowRule]= useState(1);  // jour spécifique pour min_per_slot
       const [horaire,setHoraire]= useState('matin_A');
-      const [dow17,  setDow17]  = useState(1);   // jour pour finish_17h
-      const [vet17,  setVet17]  = useState('');  // véto pour finish_17h
 
       const JOURS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
       const addRule=()=>{
         const base={id:uid(),type:rType,slot,dayType:dType,weekParity:parity};
         if(rType==='min_per_slot') setRules(prev=>{
-          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
-          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,{...base,min:minN}];
+          const isDow=dType==='dow';
+          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity&&(!isDow||r.dayOfWeek===+dowRule));
+          const newR={...base,min:minN,...(isDow?{dayOfWeek:+dowRule}:{})};
+          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,newR];
         });
         else if(rType==='horaire_rule') setRules(prev=>{
           const exists=prev.find(r=>r.type==='horaire_rule'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
@@ -1845,21 +1692,23 @@
           if(prev.some(r=>r.type==='never_slot'&&r.vetId===vetId&&r.slot===slot&&r.dayOfWeek===+dow&&r.weekParity===parity)) return prev;
           return [...prev,{...base,vetId,dayOfWeek:+dow}];
         });
-        else if(rType==='finish_17h'&&vet17) setRules(prev=>{
-          if(prev.some(r=>r.type==='finish_17h'&&r.vetId===vet17&&r.dayOfWeek===+dow17&&r.weekParity===parity)) return prev;
-          return [...prev,{id:uid(),type:'finish_17h',vetId:vet17,dayOfWeek:+dow17,weekParity:parity}];
-        });
       };
 
       const pLabel=p=>p==='even'?'Paire':p==='odd'?'Impaire':'Toutes';
       const sLabel=s=>s==='matin'?'Matin':s==='aprem'?'Après-midi':'Tous';
+      const dtLabel=r=>{
+        if(r.dayType==='all') return 'Tous jours';
+        if(r.dayType==='weekday') return 'Semaine';
+        if(r.dayType==='weekend') return 'Week-end';
+        if(r.dayType==='dow') return JS_FULL[r.dayOfWeek]||'?';
+        return '?';
+      };
       const labelOf=r=>{
         const pl=<span className={'parity-badge '+(r.weekParity==='even'?'parity-even':r.weekParity==='odd'?'parity-odd':'parity-all')} style={{margin:'0 3px'}}>{pLabel(r.weekParity)}</span>;
         const sl=<span className={'slot-badge '+(r.slot==='matin'?'slot-matin':r.slot==='aprem'?'slot-aprem':'slot-all')} style={{margin:'0 3px'}}>{sLabel(r.slot)}</span>;
-        if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — S. {pl}</span>;
+        if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — <span style={{fontWeight:600,color:'#374151'}}>{dtLabel(r)}</span> — S. {pl}</span>;
         if(r.type==='horaire_rule'){const h=HORAIRES[r.horaire];return <span>🕐 {sl} → {h?h.label:'?'} — S. {pl}</span>;}
         if(r.type==='never_slot'){const v=vets.find(x=>x.id===r.vetId);return <span>🚫 {v?v.name:'?'} — jamais {sl} le {JS_FULL[r.dayOfWeek]} S. {pl}</span>;}
-        if(r.type==='finish_17h'){const v=vets.find(x=>x.id===r.vetId);return <span>🕔 <strong>{v?v.name:'?'}</strong> — finit à <strong>17h</strong> le {JS_FULL[r.dayOfWeek]} — S. {pl}</span>;}
         return <span>{r.type}</span>;
       };
 
@@ -1884,27 +1733,13 @@
           {/* Règle fixe : créneaux obligatoires */}
           <div className="g-card" style={{marginBottom:16,border:'1.5px solid #99f6e4',background:'#f0fdfa'}}>
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:8,color:'#0d9488',textTransform:'uppercase',letterSpacing:'.06em'}}>
-              🔒 Règles fixes — non modifiables
+              🔒 Règle fixe — non modifiable
             </h3>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              <div className="rule-row" style={{background:'#fff'}}>
-                <span style={{flex:1,fontSize:13}}>
-                  🏥 <strong>Tous les créneaux ouverts doivent être couverts</strong> — matin ET après-midi obligatoires chaque jour d'ouverture
-                </span>
-                <span className="slot-badge slot-all">Fixe</span>
-              </div>
-              <div className="rule-row" style={{background:'#fff'}}>
-                <span style={{flex:1,fontSize:13}}>
-                  🗓 <strong>Samedi : uniquement aprem_A (13h–17h)</strong> — pas d'après-midi 15h–19h le samedi
-                </span>
-                <span className="slot-badge slot-aprem">Sam</span>
-              </div>
-              <div className="rule-row" style={{background:'#fff'}}>
-                <span style={{flex:1,fontSize:13}}>
-                  🚫 <strong>Samedi : matin B (10h30–13h30) incompatible avec l'après-midi</strong> — chevauche aprem_A (13h). En semaine, matin B + aprem B (15h–19h) est autorisé et préféré
-                </span>
-                <span className="slot-badge slot-matin">Matin B · Sam</span>
-              </div>
+            <div className="rule-row" style={{background:'#fff'}}>
+              <span style={{flex:1,fontSize:13}}>
+                🏥 <strong>Tous les créneaux ouverts doivent être couverts</strong> — la clinique ouvre et ferme toujours aux mêmes horaires (matin ET après-midi obligatoires chaque jour d'ouverture)
+              </span>
+              <span className="slot-badge slot-all">Fixe</span>
             </div>
           </div>
 
@@ -1953,25 +1788,6 @@
             </div>
           </div>
 
-          {/* Règles fin à 17h */}
-          <div className="g-card" style={{marginBottom:16,border:'1.5px solid #fde68a',background:'#fffbeb'}}>
-            <h3 style={{fontSize:13,fontWeight:600,marginBottom:4,color:'#92400e',textTransform:'uppercase',letterSpacing:'.06em'}}>
-              🕔 Fins à 17h (aprem_A obligatoire)
-            </h3>
-            <p style={{fontSize:12,color:'#a16207',marginBottom:10,lineHeight:1.5}}>
-              Force un vétérinaire à prendre le créneau 13h–17h un jour donné. La génération équilibre aussi automatiquement les fins à 17h entre tous les vétérinaires sur l'année.
-            </p>
-            <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              {byType('finish_17h').map(r=>(
-                <div key={r.id} className="rule-row" style={{background:'#fff'}}>
-                  <span style={{flex:1,fontSize:13}}>{labelOf(r)}</span>
-                  <button onClick={()=>setRules(p=>p.filter(x=>x.id!==r.id))} className="btn-danger-soft">Suppr.</button>
-                </div>
-              ))}
-              {byType('finish_17h').length===0&&<p style={{fontSize:12,color:'#9ca3af'}}>Aucune règle de fin à 17h — la génération équilibre les fins à 17h automatiquement</p>}
-            </div>
-          </div>
-
           {/* Ajouter une règle */}
           <div className="g-card">
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:16,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Ajouter une règle</h3>
@@ -1982,10 +1798,8 @@
                   <option value="min_per_slot">Couverture minimale</option>
                   <option value="horaire_rule">Horaire par parité</option>
                   <option value="never_slot">Exclusion créneau</option>
-                  <option value="finish_17h">Fin à 17h obligatoire</option>
                 </select>
               </div>
-              {rType!=='finish_17h'&&(
               <div>
                 <span className="g-label">Créneau</span>
                 <select value={slot} onChange={e=>setSlot(e.target.value)} className="g-input">
@@ -1994,8 +1808,6 @@
                   {rType==='never_slot'&&<option value="all">Les deux</option>}
                 </select>
               </div>
-              )}
-              {rType!=='finish_17h'&&(
               <div>
                 <span className="g-label">Semaine</span>
                 <select value={parity} onChange={e=>setParity(e.target.value)} className="g-input">
@@ -2004,7 +1816,6 @@
                   <option value="odd">Impaire</option>
                 </select>
               </div>
-              )}
               {rType==='min_per_slot'&&<>
                 <div>
                   <span className="g-label">Jours</span>
@@ -2012,8 +1823,17 @@
                     <option value="weekday">Semaine</option>
                     <option value="weekend">Week-end</option>
                     <option value="all">Tous</option>
+                    <option value="dow">Jour spécifique</option>
                   </select>
                 </div>
+                {dType==='dow'&&(
+                  <div>
+                    <span className="g-label">Jour</span>
+                    <select value={dowRule} onChange={e=>setDowRule(e.target.value)} className="g-input">
+                      {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <span className="g-label">Minimum</span>
                   <input type="number" min={1} max={10} value={minN} onChange={e=>setMinN(+e.target.value||1)}
@@ -2050,29 +1870,6 @@
                   <span className="g-label">Jour exclu</span>
                   <select value={dow} onChange={e=>setDow(e.target.value)} className="g-input">
                     {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
-                  </select>
-                </div>
-              </>}
-              {rType==='finish_17h'&&<>
-                <div>
-                  <span className="g-label">Vétérinaire</span>
-                  <select value={vet17} onChange={e=>setVet17(e.target.value)} className="g-input">
-                    <option value="">Choisir…</option>
-                    {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <span className="g-label">Jour</span>
-                  <select value={dow17} onChange={e=>setDow17(e.target.value)} className="g-input">
-                    {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <span className="g-label">Semaine</span>
-                  <select value={parity} onChange={e=>setParity(e.target.value)} className="g-input">
-                    <option value="all">Toutes</option>
-                    <option value="even">Paire</option>
-                    <option value="odd">Impaire</option>
                   </select>
                 </div>
               </>}
@@ -2165,7 +1962,6 @@
           matin:0,aprem:0,
           matinH:{matin_A:0,matin_B:0},
           apremH:{aprem_A:0,aprem_B:0},
-          fin17h:0,   // nombre de fois en aprem_A (fin 17h)
           astrDays:0,
           astrBlocsWEJF:0,
           days:new Set()
@@ -2211,7 +2007,6 @@
                   counts[vid].days.add(dk);
                   if(slot==='matin'  && counts[vid].matinH[subSlot.horaire]!==undefined) counts[vid].matinH[subSlot.horaire]++;
                   if(slot==='aprem'  && counts[vid].apremH[subSlot.horaire]!==undefined) counts[vid].apremH[subSlot.horaire]++;
-                  if(slot==='aprem'  && subSlot.horaire==='aprem_A') counts[vid].fin17h++;
                 });
               });
             });
@@ -2321,16 +2116,15 @@
                       <tr style={{background:'#f8fafc'}}>
                         <th style={{padding:'10px 20px',textAlign:'left',fontWeight:600,color:'#6b7280',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Vétérinaire</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#92400e',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef9ec',whiteSpace:'nowrap'}}>🌅 Matins</th>
+                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#92400e',fontSize:10,background:'#fef9ec',whiteSpace:'nowrap'}}>8h30–12h30</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#92400e',fontSize:10,background:'#fef9ec',whiteSpace:'nowrap'}}>8h30–11h30</th>
-                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#92400e',fontSize:10,background:'#fef9ec',whiteSpace:'nowrap'}}>10h30–13h30</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#4c1d95',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#f5f3ff',whiteSpace:'nowrap'}}>🌇 Après-midis</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#4c1d95',fontSize:10,background:'#f5f3ff',whiteSpace:'nowrap'}}>13h–17h</th>
-                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#4c1d95',fontSize:10,background:'#f5f3ff',whiteSpace:'nowrap'}}>15h–19h</th>
+                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#4c1d95',fontSize:10,background:'#f5f3ff',whiteSpace:'nowrap'}}>14h30–18h30</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Total DJ</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Équiv. jours</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#7c3aed',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#f5f3ff',whiteSpace:'nowrap'}}>🌙 Nuits semaine</th>
                         <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#b45309',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef3c7',whiteSpace:'nowrap'}}>🗓 Blocs WE/JF</th>
-                        <th style={{padding:'10px 12px',textAlign:'center',fontWeight:600,color:'#a16207',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',background:'#fef9ec',whiteSpace:'nowrap'}}>🕔 Fins 17h</th>
                         <th style={{padding:'10px 20px',textAlign:'left',fontWeight:600,color:'#374151',fontSize:11,textTransform:'uppercase',letterSpacing:'.05em',whiteSpace:'nowrap'}}>Répartition</th>
                       </tr>
                     </thead>
@@ -2377,9 +2171,6 @@
                             <td style={{padding:'12px',textAlign:'center',background:'#fef3c744'}}>
                               <span style={{fontWeight:700,color:'#b45309',fontSize:15}}>{d.astrBlocsWEJF||0}</span>
                             </td>
-                            <td style={{padding:'12px',textAlign:'center',background:'#fef9ec44'}}>
-                              <span style={{fontWeight:700,color:'#a16207',fontSize:15}}>{d.fin17h||0}</span>
-                            </td>
                             <td style={{padding:'12px 20px'}}>
                               <div style={{display:'flex',gap:2,alignItems:'center'}}>
                                 {/* Barre matin */}
@@ -2424,16 +2215,12 @@
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#b45309',background:'#fef3c744'}}>
                           {vets.reduce((s,v)=>s+(data[v.id]?.astrBlocsWEJF||0),0)}
                         </td>
-                        <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#a16207',background:'#fef9ec44'}}>
-                          {vets.reduce((s,v)=>s+(data[v.id]?.fin17h||0),0)}
-                        </td>
                         <td style={{padding:'10px 20px'}}>
                           <div style={{display:'flex',gap:10,fontSize:11,color:'#6b7280',flexWrap:'wrap'}}>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#f59e0b',borderRadius:2,display:'inline-block'}}/>Matin</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#8b5cf6',borderRadius:2,display:'inline-block'}}/>Après-midi</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#7c3aed',borderRadius:2,display:'inline-block'}}/>Nuits sem.</span>
                             <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#b45309',borderRadius:2,display:'inline-block'}}/>Blocs WE/JF</span>
-                            <span style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,background:'#a16207',borderRadius:2,display:'inline-block'}}/>Fins 17h</span>
                           </div>
                         </td>
                       </tr>
@@ -2561,7 +2348,7 @@
     }
 
     const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<App />);
+    root.render(<ProtectedApp />);
   </script>
 </body>
 </html>
