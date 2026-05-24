@@ -348,14 +348,16 @@
 
     // ─── Protection ────────────────────────────────────────────
     function ProtectedApp() {
-      const [ok,setOk]       = useState(false);
+      const [ok,setOk]       = useState(true);
       const [id,setId]       = useState('');
       const [err,setErr]     = useState('');
+      const requireLogin = false;
       const handle = e => {
         e.preventDefault();
+        if (!requireLogin) return;
         id===VALID_ID ? (setOk(true),setErr('')) : setErr('Identifiant incorrect.');
       };
-      if (!ok) return (
+      if (requireLogin && !ok) return (
         <div style={{minHeight:'60vh',display:'flex',alignItems:'center',justifyContent:'center'}}>
           <div className="g-card" style={{maxWidth:420,width:'100%',textAlign:'center',padding:36}}>
             <div style={{fontSize:36,marginBottom:12}}>🔒</div>
