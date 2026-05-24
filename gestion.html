@@ -333,15 +333,6 @@
       return ruleParity===weekParity(y,m,d);
     }
 
-    // dayType peut être 'all','weekday','weekend' ou 'dow' (jour spécifique, nécessite r.dayOfWeek)
-    function dayTypeMatch(r, dow, we) {
-      if (r.dayType==='all') return true;
-      if (r.dayType==='weekday') return !we;
-      if (r.dayType==='weekend') return we;
-      if (r.dayType==='dow') return r.dayOfWeek===dow;
-      return false;
-    }
-
     // Planning vide pour un slot
     const emptySlot = (horaire) => ({ horaire, vets:[] });
     const emptyDay  = () => ({
@@ -597,9 +588,8 @@
           }
         });
 
-        // ── 5. Assigner les blocs WE/JF (équilibrage annuel + anti-consécutif inter-blocs) ──────
+        // ── 5. Assigner les blocs WE/JF (équilibrage annuel) ──────────
         const assignedDays=new Set();
-        let lastBlockVet=null; // dernier véto ayant eu un bloc WE/JF → éviter enchaînement
 
         astreintUnits.forEach(unit=>{
           const isUnavailUnit=(vetId)=>
@@ -609,25 +599,15 @@
           if(elig.length===0) elig=[...vets]; // fallback si tout le monde est indispo
 
           elig.sort((a,b)=>{
+            // Priorité 1 : équilibrage des blocs WE/JF sur l'année
             const wa=load[a.id]?.weJf||0, wb=load[b.id]?.weJf||0;
-            // Priorité 1 : équilibrage des blocs WE/JF — pondéré par la durée du bloc
             if(wa!==wb) return wa-wb;
-            // À égalité : pénaliser le véto qui vient juste d'avoir un bloc WE/JF (anti-enchaînement)
-            const pa = a.id===lastBlockVet ? 1 : 0;
-            const pb = b.id===lastBlockVet ? 1 : 0;
-            if(pa!==pb) return pa-pb;
             // Priorité 2 : charge totale
-            const ta=load[a.id]?.total||0, tb=load[b.id]?.total||0;
-            if(ta!==tb) return ta-tb;
-            // Priorité 3 : brassage aléatoire pour éviter biais d'ordre du tableau vets
-            return Math.random()-0.5;
+            return (load[a.id]?.total||0)-(load[b.id]?.total||0);
           });
 
           const chosen=elig[0]?.id||null;
-          if(chosen){
-            load[chosen].weJf++;
-            lastBlockVet=chosen;
-          }
+          if(chosen) load[chosen].weJf++;
 
           unit.days.forEach(d=>{
             if(d<1||d>numDays) return;
@@ -638,8 +618,9 @@
           });
         });
 
-        // ── 6. Jours de semaine restants (règle anti-consécutif renforcée) ──────
-        // Règle : fortement éviter d'attribuer l'astreinte 2+ jours consécutifs au même véto
+        // ── 6. Jours de semaine restants (règle anti-consécutif) ──────
+        // Règle : éviter d'attribuer la même astreinte 2 jours consécutifs à un même véto
+        // Exceptions déjà gérées par les blocs ci-dessus.
         for(let d=1;d<=numDays;d++){
           if(assignedDays.has(d)) continue;
           if(!dayInfo[d].isOpen) continue;
@@ -647,15 +628,11 @@
           const key=dayInfo[d].key;
           const dow=dayInfo[d].dow;
 
-          // Véto du jour J-1
+          // Véto du jour précédent (anti-consécutif)
           const prevKey=d>1&&dayInfo[d-1]?dayInfo[d-1].key:null;
           const prevVet=prevKey&&newA[prevKey]?newA[prevKey].soir:null;
 
-          // Véto du jour J-2 (pour détecter 2 jours consécutifs)
-          const prev2Key=d>2&&dayInfo[d-2]?dayInfo[d-2].key:null;
-          const prev2Vet=prev2Key&&newA[prev2Key]?newA[prev2Key].soir:null;
-
-          // Véto du prochain jour assigné (friction avant bloc WE/JF)
+          // Véto du prochain jour assigné (pour éviter friction avant bloc WE/JF)
           let nextVet=null;
           for(let nd=d+1;nd<=numDays;nd++){
             if(dayInfo[nd]&&newA[dayInfo[nd].key]){
@@ -673,21 +650,12 @@
           elig.sort((a,b)=>{
             let sa=-(load[a.id]?.total||0);
             let sb=-(load[b.id]?.total||0);
-
-            // ── Pénalité forte : J-1 même véto (consécutif simple)
-            if(a.id===prevVet) sa-=60;
-            if(b.id===prevVet) sb-=60;
-
-            // ── Pénalité très forte : J-2 ET J-1 même véto (3 jours consécutifs)
-            if(prevVet&&a.id===prevVet&&a.id===prev2Vet) sa-=150;
-            if(prevVet&&b.id===prevVet&&b.id===prev2Vet) sb-=150;
-
-            // ── Pénalité modérée : friction avant bloc WE/JF (renforcée le vendredi)
-            if(a.id===nextVet) sa-=(dow===5?25:10);
-            if(b.id===nextVet) sb-=(dow===5?25:10);
-
-            // ── Brassage sur égalité
-            if(sa===sb) return Math.random()-0.5;
+            // Pénalité forte : même véto que la veille → no-consécutif
+            if(a.id===prevVet) sa-=25;
+            if(b.id===prevVet) sb-=25;
+            // Pénalité : même véto que le prochain bloc (fort le vendredi)
+            if(a.id===nextVet) sa-=(dow===5?15:5);
+            if(b.id===nextVet) sb-=(dow===5?15:5);
             return sb-sa;
           });
 
@@ -711,7 +679,7 @@
           r.type==='horaire_rule' &&
           r.slot===slot &&
           parityMatch(r.weekParity,y,m,d) &&
-          dayTypeMatch(r,dow,we)
+          (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
         );
         if (r) return r.horaire;
         return slot==='matin'?'matin_A':'aprem_A';
@@ -745,7 +713,7 @@
           const minR=rules.find(r=>
             r.type==='min_per_slot' && r.slot===slot &&
             parityMatch(r.weekParity,y,m,d) &&
-            dayTypeMatch(r,dow,we)
+            (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
           );
           if (minR&&allVets.length<minR.min)
             alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : min. ${minR.min} véto(s) requis (${allVets.length} assigné(s))`});
@@ -796,21 +764,11 @@
             const horaireB = slot==='matin' ? 'matin_B' : 'aprem_B';
             const uSet=new Set(dayU[slot]||[]);
             const exclSet=new Set(rules.filter(r=>r.type==='never_slot'&&(r.slot===slot||r.slot==='all')&&r.dayOfWeek===dow&&parityMatch(r.weekParity,year,month,d)).map(r=>r.vetId));
-            let elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
+            const elig=vets.filter(v=>!uSet.has(v.id)&&!exclSet.has(v.id));
             elig.sort((a,b)=>wl[a.id]-wl[b.id]);
-            const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&dayTypeMatch(r,dow,we));
+            const minR=rules.find(r=>r.type==='min_per_slot'&&r.slot===slot&&parityMatch(r.weekParity,year,month,d)&&(r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)));
             const need=minR?minR.min:1;
-            let asgn=elig.slice(0,need);
-            // ── Règle fixe : au moins 1 véto par slot ouvert (la clinique maintient ses horaires)
-            if(asgn.length===0){
-              // 1er fallback : ignorer les exclusions never_slot mais respecter les indispos
-              const fb1=vets.filter(v=>!uSet.has(v.id)).sort((a,b)=>wl[a.id]-wl[b.id]);
-              if(fb1.length>0) asgn=fb1.slice(0,1);
-              else {
-                // 2e fallback absolu : ignorer tout
-                asgn=[...vets].sort((a,b)=>wl[a.id]-wl[b.id]).slice(0,1);
-              }
-            }
+            const asgn=elig.slice(0,need);
             // répartir les vétérinaires demandés sur les sous-créneaux (A/B)
             const slotArrTemplate = [ {horaire:horaireA, vets:[]}, {horaire:horaireB, vets:[]} ];
             asgn.forEach((v, idx)=>{
@@ -974,10 +932,11 @@
 
     // ─── Onglet Planning ───────────────────────────────────────
     function PlanningTab({year,month,numDays,startCol,vets,planning,unavail,allAlerts,totalAlerts,openDays,validated,onChangeMonth,onGenerate,onValidate,updateSubSlot,setUnavail,setEditDay,resolveHoraire,isoWeek,weekParity,astreintes,setAstreintes,onGenerateAstreintes,holidays}){
-      const [showU,  setShowU]  = useState(false);
-      const [uVet,   setUVet]   = useState('');
-      const [uDay,   setUDay]   = useState('');
-      const [uSlot,  setUSlot]  = useState('matin');
+      const [showU,    setShowU]    = useState(false);
+      const [uVet,     setUVet]     = useState('');
+      const [uDayFrom, setUDayFrom] = useState('');
+      const [uDayTo,   setUDayTo]   = useState('');
+      const [uSlot,    setUSlot]    = useState('matin');
       const gridRef = useRef(null);
 
       // Listener natif en capture — intercepte AVANT tout autre listener
@@ -1012,21 +971,69 @@
       const totalU=Object.values(unavail).reduce((s,d)=>s+(d.matin||[]).length+(d.aprem||[]).length,0);
       const hasP=Object.keys(planning).filter(k=>k.startsWith(pfxCur)&&planning[k]).length>0;
 
+      // ── Ajouter une indisponibilité (plage de jours + demi-journée) ─────
       const doAdd=()=>{
-        if(!uVet||!uDay) return;
-        const d=parseInt(uDay); if(d<1||d>numDays) return;
-        const key=dk(year,month,d);
+        if(!uVet||!uDayFrom) return;
+        const dFrom=parseInt(uDayFrom);
+        const dTo  =uDayTo?parseInt(uDayTo):dFrom;
+        if(isNaN(dFrom)||dFrom<1||dFrom>numDays) return;
+        if(isNaN(dTo)||dTo<dFrom||dTo>numDays) return;
+        const slots=uSlot==='all'?['matin','aprem']:[uSlot];
         setUnavail(prev=>{
-          const cur=prev[key]||{matin:[],aprem:[]};
-          const arr=[...(cur[uSlot]||[]).filter(x=>x!==uVet),uVet];
-          return {...prev,[key]:{...cur,[uSlot]:arr}};
+          let next={...prev};
+          for(let d=dFrom;d<=dTo;d++){
+            const key=dk(year,month,d);
+            const cur=next[key]||{matin:[],aprem:[]};
+            const updated={...cur};
+            slots.forEach(s=>{
+              updated[s]=[...(cur[s]||[]).filter(x=>x!==uVet),uVet];
+            });
+            next[key]=updated;
+          }
+          return next;
         });
-        setUDay('');
+        setUDayFrom('');setUDayTo('');
       };
+
+      // Supprimer une entrée individuelle (slot+vid pour une clé)
       const doRemove=(key,slot,vid)=>setUnavail(prev=>{
         const cur=prev[key]||{matin:[],aprem:[]};
         return {...prev,[key]:{...cur,[slot]:(cur[slot]||[]).filter(x=>x!==vid)}};
       });
+
+      // Supprimer un groupe complet (plage de jours consécutifs)
+      const doRemoveGroup=(keys,slot,vid)=>setUnavail(prev=>{
+        let next={...prev};
+        keys.forEach(key=>{
+          const cur=next[key]||{matin:[],aprem:[]};
+          next[key]={...cur,[slot]:(cur[slot]||[]).filter(x=>x!==vid)};
+        });
+        return next;
+      });
+
+      // ── Regrouper les indispos en plages consécutives pour l'affichage ─
+      const indispoGroups = (() => {
+        const entries=[];
+        Object.entries(unavail)
+          .filter(([k])=>k.startsWith(pfxCur))
+          .forEach(([key,slots])=>{
+            const d=parseInt(key.split('-')[2]);
+            ['matin','aprem'].forEach(slot=>{
+              (slots[slot]||[]).forEach(vid=>entries.push({key,d,slot,vid}));
+            });
+          });
+        entries.sort((a,b)=>a.vid.localeCompare(b.vid)||a.slot.localeCompare(b.slot)||a.d-b.d);
+        const groups=[];
+        entries.forEach(e=>{
+          const last=groups[groups.length-1];
+          if(last&&last.vid===e.vid&&last.slot===e.slot&&e.d===last.dTo+1){
+            last.dTo=e.d; last.keys.push(e.key);
+          } else {
+            groups.push({dFrom:e.d,dTo:e.d,slot:e.slot,vid:e.vid,keys:[e.key]});
+          }
+        });
+        return groups;
+      })();
 
       // Grille
       const cells=[]; for(let i=0;i<startCol;i++) cells.push(null);
@@ -1064,45 +1071,112 @@
           {/* Indispos */}
           {showU&&(
             <div className="g-card" style={{marginBottom:20}}>
-              <h3 style={{fontSize:14,fontWeight:600,marginBottom:12,color:'#374151'}}>Indisponibilités — {MOIS[month]} {year}</h3>
-              <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'flex-end'}}>
-                <div>
-                  <span className="g-label">Vétérinaire</span>
-                  <select value={uVet} onChange={e=>setUVet(e.target.value)} className="g-input" style={{minWidth:160}}>
-                    <option value=''>Choisir…</option>
-                    {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+              <h3 style={{fontSize:14,fontWeight:600,marginBottom:14,color:'#374151'}}>
+                Indisponibilités — {MOIS[month]} {year}
+              </h3>
+
+              {/* ── Formulaire ── */}
+              <div style={{background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:12,padding:14,marginBottom:14}}>
+                <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'flex-end'}}>
+
+                  {/* Vétérinaire */}
+                  <div style={{flex:'2 1 160px'}}>
+                    <span className="g-label">Vétérinaire</span>
+                    <select value={uVet} onChange={e=>setUVet(e.target.value)} className="g-input" style={{width:'100%'}}>
+                      <option value=''>Choisir…</option>
+                      {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Créneau */}
+                  <div style={{flex:'1 1 130px'}}>
+                    <span className="g-label">Créneau</span>
+                    <select value={uSlot} onChange={e=>setUSlot(e.target.value)} className="g-input" style={{width:'100%'}}>
+                      <option value="matin">🌅 Matin seul</option>
+                      <option value="aprem">🌇 Après-midi seul</option>
+                      <option value="all">☀️ Journée entière</option>
+                    </select>
+                  </div>
+
+                  {/* Séparateur vertical */}
+                  <div style={{width:1,height:38,background:'#e2e8f0',alignSelf:'flex-end',flexShrink:0}}/>
+
+                  {/* Du jour */}
+                  <div style={{flex:'0 0 auto'}}>
+                    <span className="g-label">Du jour</span>
+                    <input type="number" min={1} max={numDays} value={uDayFrom}
+                      onChange={e=>{ setUDayFrom(e.target.value); if(!uDayTo) setUDayTo(e.target.value); }}
+                      placeholder="1" className="g-input" style={{width:72}}/>
+                  </div>
+
+                  {/* Au jour */}
+                  <div style={{flex:'0 0 auto'}}>
+                    <span className="g-label" style={{display:'flex',alignItems:'center',gap:4}}>
+                      Au jour
+                      <span style={{fontSize:9,color:'#9ca3af',fontWeight:400,textTransform:'none',letterSpacing:0}}>(= 1 seul si identique)</span>
+                    </span>
+                    <input type="number" min={uDayFrom||1} max={numDays} value={uDayTo}
+                      onChange={e=>setUDayTo(e.target.value)}
+                      placeholder={uDayFrom||'…'} className="g-input" style={{width:72}}/>
+                  </div>
+
+                  <button onClick={doAdd} className="btn-teal"
+                    disabled={!uVet||!uDayFrom||!uDayTo}
+                    style={{alignSelf:'flex-end'}}>
+                    + Ajouter
+                  </button>
                 </div>
-                <div>
-                  <span className="g-label">Jour</span>
-                  <input type="number" min={1} max={numDays} value={uDay} onChange={e=>setUDay(e.target.value)}
-                    className="g-input" style={{width:75}}/>
-                </div>
-                <div>
-                  <span className="g-label">Créneau</span>
-                  <select value={uSlot} onChange={e=>setUSlot(e.target.value)} className="g-input">
-                    <option value="matin">Matin</option>
-                    <option value="aprem">Après-midi</option>
-                    <option value="all">Toute la journée</option>
-                  </select>
-                </div>
-                <button onClick={doAdd} className="btn-teal">Ajouter</button>
-              </div>
-              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {Object.entries(unavail).flatMap(([key,slots])=>
-                  ['matin','aprem'].flatMap(slot=>(slots[slot]||[]).map(vid=>{
-                    const v=vets.find(x=>x.id===vid);
-                    const d=parseInt(key.split('-')[2]);
-                    return v?(
-                      <span key={key+slot+vid} className="indispo-chip"
-                        style={{background:v.color+'18',border:'1px solid '+v.color+'44',color:v.color}}>
-                        {v.name} – {d} {MOIS[month].slice(0,3)} ({slot==='matin'?'matin':'ap-m'})
-                        <button onClick={()=>doRemove(key,slot,vid)}>×</button>
+
+                {/* Résumé de la saisie */}
+                {uVet&&uDayFrom&&uDayTo&&(()=>{
+                  const v=vets.find(x=>x.id===uVet);
+                  const dF=parseInt(uDayFrom), dT=parseInt(uDayTo);
+                  if(!v||isNaN(dF)||isNaN(dT)) return null;
+                  const slotLabel=uSlot==='matin'?'matin':uSlot==='aprem'?'après-midi':'journée entière';
+                  const rangeLabel=dF===dT?`le ${dF} ${MOIS[month]}`:`du ${dF} au ${dT} ${MOIS[month]}`;
+                  return(
+                    <div style={{marginTop:10,fontSize:12,color:'#0d9488',display:'flex',alignItems:'center',gap:6,
+                      background:'#f0fdfa',border:'1px solid #99f6e4',borderRadius:8,padding:'6px 12px'}}>
+                      <span>👁</span>
+                      <span><strong>{v.name}</strong> — {slotLabel} — {rangeLabel}
+                        {dT-dF+1>1&&<span style={{color:'#6b7280',marginLeft:4}}>({dT-dF+1} jours)</span>}
                       </span>
-                    ):null;
-                  }))
-                )}
-                {totalU===0&&<span style={{color:'#9ca3af',fontSize:13}}>Aucune indisponibilité pour ce mois</span>}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* ── Chips groupés ── */}
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {indispoGroups.map((g,i)=>{
+                  const v=vets.find(x=>x.id===g.vid);
+                  if(!v) return null;
+                  const slotLabel=g.slot==='matin'?'🌅 matin':'🌇 ap-m';
+                  const dayLabel=g.dFrom===g.dTo
+                    ?`${g.dFrom} ${MOIS[month].slice(0,3)}.`
+                    :`${g.dFrom}→${g.dTo} ${MOIS[month].slice(0,3)}.`;
+                  return(
+                    <span key={i} className="indispo-chip"
+                      style={{background:v.color+'18',border:'1px solid '+v.color+'44',color:v.color,
+                        display:'inline-flex',alignItems:'center',gap:5,borderRadius:20,
+                        padding:'4px 10px',fontSize:12,fontWeight:500}}>
+                      <span style={{width:7,height:7,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                      {v.name.replace('Dr. ','')}
+                      <span style={{color:'#6b7280',fontWeight:400,fontSize:11}}>
+                        {slotLabel} · {dayLabel}
+                      </span>
+                      {g.keys.length>1&&(
+                        <span style={{background:v.color+'30',borderRadius:10,padding:'0 5px',fontSize:10,fontWeight:700}}>
+                          ×{g.keys.length}j
+                        </span>
+                      )}
+                      <button onClick={()=>doRemoveGroup(g.keys,g.slot,g.vid)}
+                        style={{background:'none',border:'none',cursor:'pointer',fontSize:15,
+                          lineHeight:1,padding:0,color:'inherit',opacity:.6,marginLeft:2}}>×</button>
+                    </span>
+                  );
+                })}
+                {totalU===0&&<span style={{color:'#9ca3af',fontSize:13,fontStyle:'italic'}}>Aucune indisponibilité pour ce mois</span>}
               </div>
             </div>
           )}
@@ -1671,7 +1745,6 @@
       const [minN,   setMinN]   = useState(2);
       const [vetId,  setVetId]  = useState('');
       const [dow,    setDow]    = useState(1);
-      const [dowRule,setDowRule]= useState(1);  // jour spécifique pour min_per_slot
       const [horaire,setHoraire]= useState('matin_A');
 
       const JOURS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
@@ -1679,10 +1752,8 @@
       const addRule=()=>{
         const base={id:uid(),type:rType,slot,dayType:dType,weekParity:parity};
         if(rType==='min_per_slot') setRules(prev=>{
-          const isDow=dType==='dow';
-          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity&&(!isDow||r.dayOfWeek===+dowRule));
-          const newR={...base,min:minN,...(isDow?{dayOfWeek:+dowRule}:{})};
-          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,newR];
+          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
+          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,{...base,min:minN}];
         });
         else if(rType==='horaire_rule') setRules(prev=>{
           const exists=prev.find(r=>r.type==='horaire_rule'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
@@ -1696,17 +1767,10 @@
 
       const pLabel=p=>p==='even'?'Paire':p==='odd'?'Impaire':'Toutes';
       const sLabel=s=>s==='matin'?'Matin':s==='aprem'?'Après-midi':'Tous';
-      const dtLabel=r=>{
-        if(r.dayType==='all') return 'Tous jours';
-        if(r.dayType==='weekday') return 'Semaine';
-        if(r.dayType==='weekend') return 'Week-end';
-        if(r.dayType==='dow') return JS_FULL[r.dayOfWeek]||'?';
-        return '?';
-      };
       const labelOf=r=>{
         const pl=<span className={'parity-badge '+(r.weekParity==='even'?'parity-even':r.weekParity==='odd'?'parity-odd':'parity-all')} style={{margin:'0 3px'}}>{pLabel(r.weekParity)}</span>;
         const sl=<span className={'slot-badge '+(r.slot==='matin'?'slot-matin':r.slot==='aprem'?'slot-aprem':'slot-all')} style={{margin:'0 3px'}}>{sLabel(r.slot)}</span>;
-        if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — <span style={{fontWeight:600,color:'#374151'}}>{dtLabel(r)}</span> — S. {pl}</span>;
+        if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — S. {pl}</span>;
         if(r.type==='horaire_rule'){const h=HORAIRES[r.horaire];return <span>🕐 {sl} → {h?h.label:'?'} — S. {pl}</span>;}
         if(r.type==='never_slot'){const v=vets.find(x=>x.id===r.vetId);return <span>🚫 {v?v.name:'?'} — jamais {sl} le {JS_FULL[r.dayOfWeek]} S. {pl}</span>;}
         return <span>{r.type}</span>;
@@ -1823,17 +1887,8 @@
                     <option value="weekday">Semaine</option>
                     <option value="weekend">Week-end</option>
                     <option value="all">Tous</option>
-                    <option value="dow">Jour spécifique</option>
                   </select>
                 </div>
-                {dType==='dow'&&(
-                  <div>
-                    <span className="g-label">Jour</span>
-                    <select value={dowRule} onChange={e=>setDowRule(e.target.value)} className="g-input">
-                      {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
-                    </select>
-                  </div>
-                )}
                 <div>
                   <span className="g-label">Minimum</span>
                   <input type="number" min={1} max={10} value={minN} onChange={e=>setMinN(+e.target.value||1)}
