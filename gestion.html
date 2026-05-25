@@ -559,7 +559,7 @@
  );
 
  // ── Charge historique (yearlyData) ────────────────────────────
- const load = Object.fromEntries(vets.map(v=>[v.id,{dj:0, weJf:0, soir:0}]));
+ const historicalLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0, weJf:0, soir:0}]));
  Object.entries(yearlyData).forEach(([yr, months])=>{
  const yHols = getFrenchHolidays(parseInt(yr));
  Object.values(months).forEach(({astreintes:a, planning:p})=>{
@@ -575,9 +575,9 @@
  const prev = new Date(ky, km-1, kd-1);
  const prevKey = dk_(prev.getFullYear(), prev.getMonth(), prev.getDate());
  const prevClosed = isWE(prev.getDay()) || yHols.has(prevKey);
- if(!prevClosed && vid && load[vid]) load[vid].weJf++;
+ if(!prevClosed && vid && historicalLoad[vid]) historicalLoad[vid].weJf++;
  } else {
- if(vid && load[vid]) load[vid].soir++;
+ if(vid && historicalLoad[vid]) historicalLoad[vid].soir++;
  }
  });
  }
@@ -587,12 +587,19 @@
  ['matin','aprem'].forEach(slot=>{
  const slotArr = toSlotArr(dp[slot]);
  const vids = [...new Set(slotArr.flatMap(s=>s.vets||[]))];
- vids.forEach(vid=>{ if(load[vid]) load[vid].dj++; });
+ vids.forEach(vid=>{ if(historicalLoad[vid]) historicalLoad[vid].dj++; });
  });
  });
  }
  });
  });
+ const load = Object.fromEntries(vets.map(v=>{
+ const base = historicalLoad[v.id];
+ const avgDj = Object.values(historicalLoad).reduce((s,x)=>s+x.dj,0) / Math.max(1, vets.length);
+ const avgWeJf = Object.values(historicalLoad).reduce((s,x)=>s+x.weJf,0) / Math.max(1, vets.length);
+ const avgSoir = Object.values(historicalLoad).reduce((s,x)=>s+x.soir,0) / Math.max(1, vets.length);
+ return [v.id, { dj: (base?.dj || 0) + avgDj, weJf: (base?.weJf || 0) + avgWeJf, soir: (base?.soir || 0) + avgSoir }];
+ }));
 
  // ─────────────────────────────────────────────────────────────
  // PHASE 1 : blocs dimanche + jours fériés (incluant la veille)
@@ -870,6 +877,20 @@ const generateAstreintes = useCallback(()=>{
  dayInfo[d] = { key, dow, isClosed, isHoliday: isHol, isOpen };
  }
 
+ const getForcedAstreinte = (dayNum) => {
+ const forced = { midi: null, soir: null };
+ rules.filter(r=>
+   r.type==='vet_slot_rule' &&
+   matchRuleScope(r, year, month, dayNum) &&
+   (r.slot==='matin' || r.slot==='aprem') &&
+   vets.some(v=>v.id===r.vetId)
+ ).forEach(r=>{
+   if (r.horaire === 'aprem_B') forced.soir = r.vetId;
+   else forced.midi = r.vetId;
+ });
+ return forced;
+ };
+
  const isUnavailOn = (vetId, key, slot) => {
  const u = unavail[key] || {};
  if(!slot){
@@ -881,11 +902,11 @@ const generateAstreintes = useCallback(()=>{
  const isForbiddenRule = (vetId, dayNum, slot) => {
  const dow = dayInfo[dayNum].dow;
  return rules.some(r=>
- r.type==='never_slot' &&
- (r.slot===slot || r.slot==='all') &&
- r.dayOfWeek===dow &&
- parityMatch(r.weekParity, year, month, dayNum) &&
- r.vetId===vetId
+   r.type==='never_slot' &&
+   (r.slot===slot || r.slot==='all') &&
+   r.dayOfWeek===dow &&
+   parityMatch(r.weekParity, year, month, dayNum) &&
+   r.vetId===vetId
  );
  };
  const forbiddenDay = (vetId, dayNum) => (
@@ -894,7 +915,7 @@ const generateAstreintes = useCallback(()=>{
  isForbiddenRule(vetId, dayNum, 'aprem')
  );
 
- const load = Object.fromEntries(vets.map(v=>[v.id,{dj:0, weJf:0, soir:0}]));
+ const historicalLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0, weJf:0, soir:0}]));
  Object.entries(yearlyData).forEach(([yr, months])=>{
  const yHols = getFrenchHolidays(parseInt(yr));
  Object.values(months).forEach(({astreintes:a, planning:p})=>{
@@ -910,9 +931,9 @@ const generateAstreintes = useCallback(()=>{
  const prev = new Date(ky, km-1, kd-1);
  const prevKey = dk_(prev.getFullYear(), prev.getMonth(), prev.getDate());
  const prevClosed = isWE(prev.getDay()) || yHols.has(prevKey);
- if(!prevClosed && vid && load[vid]) load[vid].weJf++;
+ if(!prevClosed && vid && historicalLoad[vid]) historicalLoad[vid].weJf++;
  } else {
- if(vid && load[vid]) load[vid].soir++;
+ if(vid && historicalLoad[vid]) historicalLoad[vid].soir++;
  }
  });
  }
@@ -922,12 +943,19 @@ const generateAstreintes = useCallback(()=>{
  ['matin','aprem'].forEach(slot=>{
  const slotArr = toSlotArr(dp[slot]);
  const vids = [...new Set(slotArr.flatMap(s=>s.vets||[]))];
- vids.forEach(vid=>{ if(load[vid]) load[vid].dj++; });
+ vids.forEach(vid=>{ if(historicalLoad[vid]) historicalLoad[vid].dj++; });
  });
  });
  }
  });
  });
+ const load = Object.fromEntries(vets.map(v=>{
+ const base = historicalLoad[v.id];
+ const avgDj = Object.values(historicalLoad).reduce((s,x)=>s+x.dj,0) / Math.max(1, vets.length);
+ const avgWeJf = Object.values(historicalLoad).reduce((s,x)=>s+x.weJf,0) / Math.max(1, vets.length);
+ const avgSoir = Object.values(historicalLoad).reduce((s,x)=>s+x.soir,0) / Math.max(1, vets.length);
+ return [v.id, { dj: (base?.dj || 0) + avgDj, weJf: (base?.weJf || 0) + avgWeJf, soir: (base?.soir || 0) + avgSoir }];
+ }));
 
  const units = [];
  const addUnit = (days, reason) => {
@@ -1038,8 +1066,17 @@ const generateAstreintes = useCallback(()=>{
  if(chosen){ soirLoad[chosen]=(soirLoad[chosen]||0)+1; lastSoirDay[chosen]=d; }
  }
 
+ for(let d=1; d<=numDays; d++){
+ if(!dayInfo[d].isOpen) continue;
+ const key = dayInfo[d].key;
+ const forced = getForcedAstreinte(d);
+ if(!newA[key]) newA[key] = {midi:null,soir:null};
+ if(forced.midi) newA[key].midi = forced.midi;
+ if(forced.soir) newA[key].soir = forced.soir;
+ }
+
  setAstreintes(newA);
-},[vets,unavail,openDays,numDays,year,month,yearlyData,holidays]);
+},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
 const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
@@ -2182,7 +2219,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               </div>
               <div>
                 <span className="g-label">Créneau</span>
-                <select value={slot} onChange={e=>setSlot(e.target.value)} className="g-input">
+                <select value={slot} onChange={e=>{
+                  const nextSlot = e.target.value;
+                  setSlot(nextSlot);
+                  const nextHoraire = Object.values(HORAIRES).find(h=>h.slot===nextSlot)?.id || 'matin_A';
+                  setHoraire(nextHoraire);
+                }} className="g-input">
                   <option value="matin">Matin</option>
                   <option value="aprem">Après-midi</option>
                   {rType==='never_slot'&&<option value="all">Les deux</option>}
