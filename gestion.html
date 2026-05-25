@@ -291,13 +291,17 @@
       return dow >= 1 && dow <= 5;
     }
 
-    function matchHoraireRule(rule, y, m, d) {
+    function matchRuleScope(rule, y, m, d) {
       const dow = dowJS(y, m, d);
       if (rule.weekParity !== 'all' && !parityMatch(rule.weekParity, y, m, d)) return false;
       if (rule.dayType === 'weekday' && !isWeekday(dow)) return false;
       if (rule.dayType === 'weekend' && isWeekday(dow)) return false;
       if (rule.dayOfWeek !== undefined && rule.dayOfWeek !== dow) return false;
       return true;
+    }
+
+    function matchHoraireRule(rule, y, m, d) {
+      return matchRuleScope(rule, y, m, d);
     }
 
     // Planning vide pour un slot
@@ -747,6 +751,11 @@
  if(slot==='aprem') return !unavApr.has(vid) && !isNever(vid,'aprem');
  return true;
  };
+ const fixedVetRules = rules.filter(r=>
+   r.type==='vet_slot_rule' &&
+   matchRuleScope(r, year, month, d) &&
+   (r.slot==='aprem' || r.slot==='matin' || r.slot==='all')
+ );
 
  const allVids = vets.map(v=>v.id);
  const pickVet = (cands, bias=null) => {
@@ -776,12 +785,22 @@
  const chosen = pickVet(cands, (bias && !already.has(bias)) ? bias : null);
  if(chosen) tgt.vets.push(chosen);
  };
+ const applyFixedVetRule = (rule) => {
+   const targetSlot = rule.slot === 'all' ? null : rule.slot;
+   const targetArr = targetSlot === 'matin' ? day.matin : targetSlot === 'aprem' ? day.aprem : null;
+   if(!targetArr) return;
+   const target = targetArr.find(s=>s.horaire===rule.horaire);
+   if(!target) return;
+   if(!canWork(rule.vetId, targetSlot)) return;
+   if(!target.vets.includes(rule.vetId)) target.vets.push(rule.vetId);
+ };
 
  // couverture continue
  ensureOne(day.matin,'matin_A','matin');
  ensureOne(day.matin,'matin_B','matin');
  ensureOne(day.aprem,'aprem_A','aprem');
  if(!isSat) ensureOne(day.aprem,'aprem_B','aprem', astrVet);
+ fixedVetRules.forEach(applyFixedVetRule);
 
  // minima globaux
  const minMatRule = rules.find(r=>r.type==='min_per_slot' && r.slot==='matin' && parityMatch(r.weekParity, year, month, d) && ((r.dayType==='weekday' && !we) || (r.dayType==='weekend' && we) || r.dayType==='all'));
@@ -1069,6 +1088,18 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           );
           if (minR&&allVets.length<minR.min)
             alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : min. ${minR.min} véto(s) requis (${allVets.length} assigné(s))`});
+
+          rules.filter(r=>r.type==='vet_slot_rule' && r.slot===slot && matchRuleScope(r,y,m,d)).forEach(r=>{
+            const target = slotArr.find(s=>s.horaire===r.horaire);
+            const v = vets.find(x=>x.id===r.vetId);
+            if (!target) {
+              alerts.push({level:'error',slot,msg:`Règle vétérinaire : ${HORAIRES[r.horaire]?.label || r.horaire} n'est pas présent dans ce créneau`});
+              return;
+            }
+            if (!target.vets.includes(r.vetId)) {
+              alerts.push({level:'error',slot,msg:`${v?v.name:'Vétérinaire'} doit être assigné sur ${HORAIRES[r.horaire]?.label || r.horaire}`});
+            }
+          });
 
           // Vérif exclusions never_slot et indispos par sous-créneau
           slotArr.forEach(subSlot=>{
@@ -2002,6 +2033,19 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           );
           return exists ? prev.map(r => r===exists ? rule : r) : [...prev, rule];
         });
+        else if(rType==='vet_slot_rule' && vetId) setRules(prev=>{
+          const rule = fixedDayRule
+            ? {...base, dayType:'all', weekParity:'all', dayOfWeek:+dow, horaire, vetId}
+            : {...base, horaire, vetId};
+          const exists = prev.find(r =>
+            r.type==='vet_slot_rule' &&
+            r.slot===slot &&
+            r.vetId===vetId &&
+            r.horaire===horaire &&
+            (fixedDayRule ? r.dayOfWeek === +dow : r.dayType===dType && r.weekParity===parity)
+          );
+          return exists ? prev.map(r => r===exists ? rule : r) : [...prev, rule];
+        });
         else if(rType==='never_slot'&&vetId) setRules(prev=>{
           if(prev.some(r=>r.type==='never_slot'&&r.vetId===vetId&&r.slot===slot&&r.dayOfWeek===+dow&&r.weekParity===parity)) return prev;
           return [...prev,{...base,vetId,dayOfWeek:+dow}];
@@ -2018,6 +2062,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           const h=HORAIRES[r.horaire];
           const fixedDay = r.dayOfWeek !== undefined ? <span style={{margin:'0 3px'}}>Jour fixe {JS_FULL[r.dayOfWeek]}</span> : pl;
           return <span>🕐 {sl} → {h?h.label:'?'} — {r.dayOfWeek !== undefined ? fixedDay : <>S. {pl}</>}</span>;
+        }
+        if(r.type==='vet_slot_rule'){
+          const h=HORAIRES[r.horaire];
+          const vetName = vets.find(v=>v.id===r.vetId)?.name || 'Vétérinaire';
+          const fixedDay = r.dayOfWeek !== undefined ? <span style={{margin:'0 3px'}}>Jour fixe {JS_FULL[r.dayOfWeek]}</span> : pl;
+          return <span>👩‍⚕️ {vetName} — {sl} → {h?h.label:'?'} — {r.dayOfWeek !== undefined ? fixedDay : <>S. {pl}</>}</span>;
         }
         if(r.type==='never_slot'){
           const vetName = vets.find(v=>v.id===r.vetId)?.name || 'Vétérinaire';
@@ -2075,6 +2125,20 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             </div>
           </div>
 
+          {/* Règles vétérinaires sur créneaux */}
+          <div className="g-card" style={{marginBottom:16}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Affectation vétérinaire par créneau</h3>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {byType('vet_slot_rule').map(r=>(
+                <div key={r.id} className="rule-row">
+                  <span style={{flex:1,fontSize:13}}>{labelOf(r)}</span>
+                  <button onClick={()=>setRules(p=>p.filter(x=>x.id!==r.id))} className="btn-danger-soft">Suppr.</button>
+                </div>
+              ))}
+              {byType('vet_slot_rule').length===0&&<p style={{fontSize:12,color:'#9ca3af'}}>Aucune affectation vétérinaire</p>}
+            </div>
+          </div>
+
           {/* Règles couverture */}
           <div className="g-card" style={{marginBottom:16}}>
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:10,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Couverture minimale par créneau</h3>
@@ -2112,6 +2176,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 <select value={rType} onChange={e=>setRType(e.target.value)} className="g-input">
                   <option value="min_per_slot">Couverture minimale</option>
                   <option value="horaire_rule">Horaire par parité</option>
+                  <option value="vet_slot_rule">Affectation vétérinaire</option>
                   <option value="never_slot">Exclusion créneau</option>
                 </select>
               </div>
@@ -2146,7 +2211,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     className="g-input" style={{width:70}}/>
                 </div>
               </>}
-              {rType==='horaire_rule'&&<>
+              {(rType==='horaire_rule'||rType==='vet_slot_rule')&&<>
                 <div>
                   <span className="g-label">Mode</span>
                   <label style={{display:'flex',alignItems:'center',gap:6,fontSize:13,color:'#374151'}}>
@@ -2179,6 +2244,15 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     ))}
                   </select>
                 </div>
+                {rType==='vet_slot_rule'&&<>
+                  <div>
+                    <span className="g-label">Vétérinaire</span>
+                    <select value={vetId} onChange={e=>setVetId(e.target.value)} className="g-input">
+                      <option value="">Choisir…</option>
+                      {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                  </div>
+                </>}
               </>}
               {rType==='never_slot'&&<>
                 <div>
