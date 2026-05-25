@@ -287,6 +287,19 @@
       return ruleParity===weekParity(y,m,d);
     }
 
+    function isWeekday(dow) {
+      return dow >= 1 && dow <= 5;
+    }
+
+    function matchHoraireRule(rule, y, m, d) {
+      const dow = dowJS(y, m, d);
+      if (rule.weekParity !== 'all' && !parityMatch(rule.weekParity, y, m, d)) return false;
+      if (rule.dayType === 'weekday' && !isWeekday(dow)) return false;
+      if (rule.dayType === 'weekend' && isWeekday(dow)) return false;
+      if (rule.dayOfWeek !== undefined && rule.dayOfWeek !== dow) return false;
+      return true;
+    }
+
     // Planning vide pour un slot
     const emptySlot = (horaire) => ({ horaire, vets:[] });
     const emptyDay  = () => ({
@@ -720,6 +733,12 @@
           ['matin','aprem'].forEach(slot=>{
             const horaireStd = slot==='matin' ? 'matin_A' : 'aprem_A';
             const horaireAlt = slot==='matin' ? 'matin_B' : 'aprem_B';
+            const forcedHoraire = rules.find(r =>
+              r.type==='horaire_rule' &&
+              r.slot===slot &&
+              r.dayOfWeek !== undefined &&
+              matchHoraireRule(r, year, month, d)
+            )?.horaire;
 
             const uSet   = new Set(dayU[slot] || []);
             const exclSet = new Set(
@@ -733,7 +752,6 @@
 
             // Soir vet est-il disponible sur ce slot ?
             const soirVetAvail = soirVet && !uSet.has(soirVet) && !exclSet.has(soirVet);
-            const morningASet = new Set((day.matin || []).flatMap(sub => (sub.vets || [])));
 
             let elig = vets.filter(v => !uSet.has(v.id) && !exclSet.has(v.id));
             if(elig.length === 0) elig = [...vets];
@@ -792,12 +810,11 @@
             ];
 
             asgn.forEach(v=>{
-              let targetH;
-              if(slot === 'aprem' && v.id === soirVet && !morningASet.has(v.id)){
-                targetH = horaireAlt;   // 18h30 → finit le plus tard
-              } else {
-                targetH = horaireStd;   // 17h ou 12h30
-              }
+              const targetH = forcedHoraire || (
+                slot === 'aprem' && v.id === soirVet
+                  ? horaireAlt
+                  : horaireStd
+              );
               const target = slotArr.find(s=>s.horaire===targetH);
               if(target) target.vets.push(v.id);
 
@@ -958,12 +975,10 @@
 
       // Quel horaire s'applique pour un slot à une date donnée ?
       const resolveHoraire = useCallback((y,m,d,slot)=>{
-        const dow=dowJS(y,m,d), we=isWE(dow), wp=weekParity(y,m,d);
         const r=rules.find(r=>
           r.type==='horaire_rule' &&
           r.slot===slot &&
-          parityMatch(r.weekParity,y,m,d) &&
-          (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
+          matchHoraireRule(r,y,m,d)
         );
         if (r) return r.horaire;
         return slot==='matin'?'matin_A':'aprem_A';
@@ -1905,14 +1920,15 @@
 
     // ─── Onglet Règles ─────────────────────────────────────────
     function ReglesTab({rules,setRules,vets,openDays,setOpenDays}){
-      const [rType,  setRType]  = useState('min_per_slot');
-      const [slot,   setSlot]   = useState('matin');
-      const [dType,  setDType]  = useState('weekday');
-      const [parity, setParity] = useState('all');
-      const [minN,   setMinN]   = useState(2);
-      const [vetId,  setVetId]  = useState('');
-      const [dow,    setDow]    = useState(1);
-      const [horaire,setHoraire]= useState('matin_A');
+      const [rType,        setRType]        = useState('min_per_slot');
+      const [slot,         setSlot]         = useState('matin');
+      const [dType,        setDType]        = useState('weekday');
+      const [parity,       setParity]       = useState('all');
+      const [minN,         setMinN]         = useState(2);
+      const [vetId,        setVetId]        = useState('');
+      const [dow,          setDow]          = useState(1);
+      const [horaire,      setHoraire]      = useState('matin_A');
+      const [fixedDayRule, setFixedDayRule] = useState(false);
 
       const JOURS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
@@ -1923,8 +1939,15 @@
           return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,{...base,min:minN}];
         });
         else if(rType==='horaire_rule') setRules(prev=>{
-          const exists=prev.find(r=>r.type==='horaire_rule'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
-          return exists?prev.map(r=>r===exists?{...r,horaire}:r):[...prev,{...base,horaire}];
+          const rule = fixedDayRule
+            ? {...base, dayType:'all', weekParity:'all', dayOfWeek:+dow, horaire}
+            : {...base, horaire};
+          const exists = prev.find(r =>
+            r.type==='horaire_rule' &&
+            r.slot===slot &&
+            (fixedDayRule ? r.dayOfWeek === +dow : r.dayType===dType && r.weekParity===parity)
+          );
+          return exists ? prev.map(r => r===exists ? rule : r) : [...prev, rule];
         });
         else if(rType==='never_slot'&&vetId) setRules(prev=>{
           if(prev.some(r=>r.type==='never_slot'&&r.vetId===vetId&&r.slot===slot&&r.dayOfWeek===+dow&&r.weekParity===parity)) return prev;
@@ -1938,8 +1961,11 @@
         const pl=<span className={'parity-badge '+(r.weekParity==='even'?'parity-even':r.weekParity==='odd'?'parity-odd':'parity-all')} style={{margin:'0 3px'}}>{pLabel(r.weekParity)}</span>;
         const sl=<span className={'slot-badge '+(r.slot==='matin'?'slot-matin':r.slot==='aprem'?'slot-aprem':'slot-all')} style={{margin:'0 3px'}}>{sLabel(r.slot)}</span>;
         if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — S. {pl}</span>;
-        if(r.type==='horaire_rule'){const h=HORAIRES[r.horaire];return <span>🕐 {sl} → {h?h.label:'?'} — S. {pl}</span>;}
-        if(r.type==='never_slot'){const v=vets.find(x=>x.id===r.vetId);return <span>🚫 {v?v.name:'?'} — jamais {sl} le {JS_FULL[r.dayOfWeek]} S. {pl}</span>;}
+        if(r.type==='horaire_rule'){
+          const h=HORAIRES[r.horaire];
+          const fixedDay = r.dayOfWeek !== undefined ? <span style={{margin:'0 3px'}}>Jour fixe {JS_FULL[r.dayOfWeek]}</span> : pl;
+          return <span>🕐 {sl} → {h?h.label:'?'} — {r.dayOfWeek !== undefined ? fixedDay : <>S. {pl}</>}</span>;
+        }
         return <span>{r.type}</span>;
       };
 
@@ -2064,13 +2090,29 @@
               </>}
               {rType==='horaire_rule'&&<>
                 <div>
-                  <span className="g-label">Jours</span>
-                  <select value={dType} onChange={e=>setDType(e.target.value)} className="g-input">
-                    <option value="all">Tous</option>
-                    <option value="weekday">Semaine</option>
-                    <option value="weekend">Week-end</option>
-                  </select>
+                  <span className="g-label">Mode</span>
+                  <label style={{display:'flex',alignItems:'center',gap:6,fontSize:13,color:'#374151'}}>
+                    <input type="checkbox" checked={fixedDayRule} onChange={e=>setFixedDayRule(e.target.checked)} />
+                    Jour fixe
+                  </label>
                 </div>
+                {!fixedDayRule ? (
+                  <div>
+                    <span className="g-label">Jours</span>
+                    <select value={dType} onChange={e=>setDType(e.target.value)} className="g-input">
+                      <option value="all">Tous</option>
+                      <option value="weekday">Semaine</option>
+                      <option value="weekend">Week-end</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="g-label">Jour fixe</span>
+                    <select value={dow} onChange={e=>setDow(e.target.value)} className="g-input">
+                      {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <span className="g-label">Horaire appliqué</span>
                   <select value={horaire} onChange={e=>setHoraire(e.target.value)} className="g-input">
