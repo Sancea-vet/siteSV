@@ -181,69 +181,22 @@
   <script type="text/babel">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
-    // ─── Persistance IndexedDB ─────────────────────────────────
-    const DB_NAME = 'sanceavet_db';
-    const DB_VERSION = 1;
-    const STORE = 'planning_store';
+    // ─── Persistance Worker KV ─────────────────────────────────
+    const API_DATA_URL = '/api/data';
 
-    function openDB() {
-      return new Promise((resolve, reject) => {
-        const req = indexedDB.open(DB_NAME, DB_VERSION);
-        req.onupgradeneeded = e => e.target.result.createObjectStore(STORE);
-        req.onsuccess = e => resolve(e.target.result);
-        req.onerror = () => reject(req.error);
-      });
-    }
-    async function idbGet(key) {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const req = tx.objectStore(STORE).get(key);
-        req.onsuccess = () => resolve(req.result ?? null);
-        req.onerror = () => resolve(null);
-      });
-    }
-    async function idbSet(key, val) {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put(val, key);
-        tx.oncomplete = resolve;
-        tx.onerror = resolve;
-      });
-    }
-    async function idbGetAll() {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readonly');
-        const store = tx.objectStore(STORE);
-        const keys = [], vals = [];
-        store.openKeyCursor().onsuccess = e => {
-          const c = e.target.result;
-          if(c){ keys.push(c.key); c.continue(); }
-        };
-        store.openCursor().onsuccess = e => {
-          const c = e.target.result;
-          if(c){ vals.push([c.key, c.value]); c.continue(); }
-        };
-        tx.oncomplete = () => resolve(Object.fromEntries(vals));
-        tx.onerror = () => resolve({});
-      });
-    }
-    async function idbClear() {
-      const db = await openDB();
-      return new Promise((resolve) => {
-        const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).clear();
-        tx.oncomplete = resolve;
-      });
+    async function loadRemoteData() {
+      const res = await fetch(API_DATA_URL);
+      if (!res.ok) throw new Error(`Erreur chargement: ${res.status}`);
+      return res.json();
     }
 
-    // Fallback localStorage pour init synchrone
-    const LS_KEY = 'sanceavet_v2';
-    function lsLoad(key, fallback) {
-      try { const v = localStorage.getItem(key); return v !== null ? JSON.parse(v) : fallback; }
-      catch(e) { return fallback; }
+    async function saveRemoteData(data) {
+      const res = await fetch(API_DATA_URL, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(`Erreur sauvegarde: ${res.status}`);
     }
 
     // ─── Constantes ────────────────────────────────────────────
@@ -383,52 +336,116 @@
       const [calId,     setCalId]     = useState('primary');
       const [saveFlash, setSaveFlash] = useState(false);
       const [loaded,    setLoaded]    = useState(false);
+      const [apiReady,  setApiReady]  = useState(false);
 
-      // ── Chargement IndexedDB au démarrage ─────────────────────
+      const resetCurrentMonth = useCallback(async () => {
+        const currentPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+        const nextPlanning = Object.fromEntries(
+          Object.entries(planning).filter(([key]) => !key.startsWith(currentPrefix))
+        );
+        const nextAstreintes = Object.fromEntries(
+          Object.entries(astreintes).filter(([key]) => !key.startsWith(currentPrefix))
+        );
+        const nextUnavail = Object.fromEntries(
+          Object.entries(unavail).filter(([key]) => !key.startsWith(currentPrefix))
+        );
+        const nextYearlyData = (() => {
+          const next = { ...yearlyData };
+          const currentYearMonths = next[year] ? { ...next[year] } : {};
+          delete currentYearMonths[String(month)];
+
+          if (Object.keys(currentYearMonths).length === 0) {
+            delete next[year];
+          } else {
+            next[year] = currentYearMonths;
+          }
+
+          return next;
+        })();
+
+        const payload = {
+          vets,
+          rules,
+          openDays,
+          planning: nextPlanning,
+          unavail: nextUnavail,
+          validated: false,
+          yearlyData: nextYearlyData,
+          astreintes: nextAstreintes,
+          nav: { year, month },
+          gclientId,
+          calId,
+        };
+
+        await saveRemoteData(payload);
+        setPlanning(nextPlanning);
+        setAstreintes(nextAstreintes);
+        setUnavail(nextUnavail);
+        setValidated(false);
+        setYearlyData(nextYearlyData);
+        setSaveFlash(true);
+        setTimeout(() => setSaveFlash(false), 1800);
+      }, [year, month, planning, astreintes, unavail, yearlyData, vets, rules, openDays, gclientId, calId]);
+
+      // ── Chargement depuis le Worker KV au démarrage ───────────
       useEffect(()=>{
         (async()=>{
-          const d = await idbGetAll();
-          if(d.vets)       setVets(d.vets);
-          if(d.rules)      setRules(d.rules);
-          if(d.openDays)   setOpenDays(d.openDays);
-          if(d.planning)   setPlanning(d.planning);
-          if(d.unavail)    setUnavail(d.unavail);
-          if(d.validated !== undefined) setValidated(d.validated);
-          if(d.yearlyData) setYearlyData(d.yearlyData);
-          if(d.astreintes) setAstreintes(d.astreintes);
-          if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
-          if(d.gclientId)  setGclientId(d.gclientId);
-          if(d.calId)      setCalId(d.calId);
-          setLoaded(true);
+          try {
+            const d = await loadRemoteData();
+            if(d.vets)       setVets(d.vets);
+            if(d.rules)      setRules(d.rules);
+            if(d.openDays)   setOpenDays(d.openDays);
+            if(d.planning)   setPlanning(d.planning);
+            if(d.unavail)    setUnavail(d.unavail);
+            if(d.validated !== undefined) setValidated(d.validated);
+            if(d.yearlyData) setYearlyData(d.yearlyData);
+            if(d.astreintes) setAstreintes(d.astreintes);
+            if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
+            if(d.gclientId)  setGclientId(d.gclientId);
+            if(d.calId)      setCalId(d.calId);
+            setApiReady(true);
+          } catch(err) {
+            console.error('Erreur de chargement du KV', err);
+            setApiReady(false);
+          } finally {
+            setLoaded(true);
+          }
         })();
       },[]);
 
-      // ── Auto-save IndexedDB ───────────────────────────────────
+      // ── Auto-save vers le Worker KV ────────────────────────────
       const saveTimer = useRef(null);
       const triggerSave = useCallback((data) => {
-        if(!data.loaded) return;
+        if(!data.loaded || !data.apiReady) return;
         clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(async () => {
-          await idbSet('vets',      data.vets);
-          await idbSet('rules',     data.rules);
-          await idbSet('openDays',  data.openDays);
-          await idbSet('planning',  data.planning);
-          await idbSet('unavail',   data.unavail);
-          await idbSet('validated', data.validated);
-          await idbSet('yearlyData',data.yearlyData);
-          await idbSet('astreintes',data.astreintes);
-          await idbSet('nav',       {year:data.year, month:data.month});
-          await idbSet('gclientId', data.gclientId);
-          await idbSet('calId',     data.calId);
-          setSaveFlash(true);
-          setTimeout(()=>setSaveFlash(false), 1800);
+          try {
+            await saveRemoteData({
+              vets: data.vets,
+              rules: data.rules,
+              openDays: data.openDays,
+              planning: data.planning,
+              unavail: data.unavail,
+              validated: data.validated,
+              yearlyData: data.yearlyData,
+              astreintes: data.astreintes,
+              nav: { year: data.year, month: data.month },
+              gclientId: data.gclientId,
+              calId: data.calId,
+            });
+            setSaveFlash(true);
+            setTimeout(()=>setSaveFlash(false), 1800);
+          } catch(err) {
+            console.error('Erreur de sauvegarde du KV', err);
+          }
         }, 800);
       }, []);
 
       useEffect(()=>{
-        if(loaded)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded]);
+        if(loaded && apiReady)
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,apiReady});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,apiReady]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
@@ -493,8 +510,8 @@
           const key  = dk_(year, month, d);
           const dow  = dowJS(year, month, d);
           const isHol   = holidays.has(key);
-          const isClosed = isWE(dow) || isHol;
-          const isOpen   = !isClosed && !!openDays[dow];
+          const isClosed = (!openDays[dow]) || isHol;
+          const isOpen   = !isClosed;
           dayInfo[d] = { key, dow, isClosed, isHoliday: isHol, isOpen };
         }
 
@@ -716,6 +733,7 @@
 
             // Soir vet est-il disponible sur ce slot ?
             const soirVetAvail = soirVet && !uSet.has(soirVet) && !exclSet.has(soirVet);
+            const morningASet = new Set((day.matin || []).flatMap(sub => (sub.vets || [])));
 
             let elig = vets.filter(v => !uSet.has(v.id) && !exclSet.has(v.id));
             if(elig.length === 0) elig = [...vets];
@@ -775,7 +793,7 @@
 
             asgn.forEach(v=>{
               let targetH;
-              if(slot === 'aprem' && v.id === soirVet){
+              if(slot === 'aprem' && v.id === soirVet && !morningASet.has(v.id)){
                 targetH = horaireAlt;   // 18h30 → finit le plus tard
               } else {
                 targetH = horaireStd;   // 17h ou 12h30
@@ -812,8 +830,8 @@
           const key=dk_(year,month,d);
           const dow=dowJS(year,month,d);
           const isHol=holidays.has(key);
-          const isClosed=isWE(dow)||isHol;
-          const isOpen=!isClosed&&!!openDays[dow];
+          const isClosed=(!openDays[dow])||isHol;
+          const isOpen=!isClosed;
           dayInfo[d]={key,dow,isClosed,isHoliday:isHol,isOpen};
         }
         const isUnavailOn=(vetId,key)=>{
@@ -1094,10 +1112,13 @@
                 ⬆ Importer
               </button>
               <button onClick={()=>{
-                if(!confirm('Réinitialiser toutes les données ? Cette action est irréversible.')) return;
-                idbClear().then(()=>window.location.reload());
+                if(!confirm('Réinitialiser uniquement le mois affiché ?')) return;
+                resetCurrentMonth().catch(err => {
+                  console.error('Erreur de réinitialisation du mois courant', err);
+                  alert('❌ Impossible de réinitialiser le mois affiché');
+                });
               }} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#ef4444',borderColor:'#fecaca'}}>
-                🗑 Réinitialiser
+                🗑 Réinitialiser mois
               </button>
             </div>
           </div>
@@ -1165,10 +1186,11 @@
 
     // ─── Onglet Planning ───────────────────────────────────────
     function PlanningTab({year,month,numDays,startCol,vets,planning,unavail,allAlerts,totalAlerts,openDays,validated,onChangeMonth,onGenerate,onValidate,updateSubSlot,setUnavail,setEditDay,resolveHoraire,isoWeek,weekParity,astreintes,setAstreintes,onGenerateAstreintes,holidays}){
-      const [showU,  setShowU]  = useState(false);
-      const [uVet,   setUVet]   = useState('');
-      const [uDay,   setUDay]   = useState('');
-      const [uSlot,  setUSlot]  = useState('matin');
+      const [showU,    setShowU]    = useState(false);
+      const [uVet,     setUVet]     = useState('');
+      const [uDay,     setUDay]     = useState('');
+      const [uDayEnd,  setUDayEnd]  = useState('');
+      const [uSlot,    setUSlot]    = useState('matin');
       const gridRef = useRef(null);
 
       // Listener natif en capture — intercepte AVANT tout autre listener
@@ -1204,15 +1226,38 @@
       const hasP=Object.keys(planning).filter(k=>k.startsWith(pfxCur)&&planning[k]).length>0;
 
       const doAdd=()=>{
-        if(!uVet||!uDay) return;
-        const d=parseInt(uDay); if(d<1||d>numDays) return;
-        const key=dk(year,month,d);
-        setUnavail(prev=>{
-          const cur=prev[key]||{matin:[],aprem:[]};
-          const arr=[...(cur[uSlot]||[]).filter(x=>x!==uVet),uVet];
-          return {...prev,[key]:{...cur,[uSlot]:arr}};
+        if(!uVet || !uDay) return;
+        const startDay = parseInt(uDay);
+        const endDay = uDayEnd ? parseInt(uDayEnd) : startDay;
+        if(!Number.isFinite(startDay) || !Number.isFinite(endDay)) return;
+        if(startDay < 1 || startDay > numDays || endDay < 1 || endDay > numDays) return;
+        if(startDay > endDay) return;
+
+        setUnavail(prev => {
+          const next = { ...prev };
+          for(let d=startDay; d<=endDay; d++){
+            const key = dk(year, month, d);
+            const cur = next[key] || { matin: [], aprem: [] };
+
+            const upsert = (slot) => {
+              const base = (cur[slot] || []).filter(x => x !== uVet);
+              if (!base.includes(uVet)) base.push(uVet);
+              return base;
+            };
+
+            const nextCur = { ...cur };
+            if (uSlot === 'all') {
+              nextCur.matin = upsert('matin');
+              nextCur.aprem = upsert('aprem');
+            } else {
+              nextCur[uSlot] = upsert(uSlot);
+            }
+            next[key] = nextCur;
+          }
+          return next;
         });
         setUDay('');
+        setUDayEnd('');
       };
       const doRemove=(key,slot,vid)=>setUnavail(prev=>{
         const cur=prev[key]||{matin:[],aprem:[]};
@@ -1265,9 +1310,14 @@
                   </select>
                 </div>
                 <div>
-                  <span className="g-label">Jour</span>
+                  <span className="g-label">Jour de début</span>
                   <input type="number" min={1} max={numDays} value={uDay} onChange={e=>setUDay(e.target.value)}
-                    className="g-input" style={{width:75}}/>
+                    className="g-input" style={{width:90}}/>
+                </div>
+                <div>
+                  <span className="g-label">Jour de fin</span>
+                  <input type="number" min={1} max={numDays} value={uDayEnd} onChange={e=>setUDayEnd(e.target.value)}
+                    className="g-input" style={{width:90}} placeholder="Optionnel"/>
                 </div>
                 <div>
                   <span className="g-label">Créneau</span>
