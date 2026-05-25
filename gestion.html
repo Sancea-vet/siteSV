@@ -2019,6 +2019,11 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           const fixedDay = r.dayOfWeek !== undefined ? <span style={{margin:'0 3px'}}>Jour fixe {JS_FULL[r.dayOfWeek]}</span> : pl;
           return <span>🕐 {sl} → {h?h.label:'?'} — {r.dayOfWeek !== undefined ? fixedDay : <>S. {pl}</>}</span>;
         }
+        if(r.type==='never_slot'){
+          const vetName = vets.find(v=>v.id===r.vetId)?.name || 'Vétérinaire';
+          const dayLabel = r.dayOfWeek !== undefined ? ` ${JS_FULL[r.dayOfWeek]}` : '';
+          return <span>🚫 {vetName} — {sl} —{dayLabel} — S. {pl}</span>;
+        }
         return <span>{r.type}</span>;
       };
 
