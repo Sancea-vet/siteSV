@@ -593,12 +593,25 @@
  }
  });
  });
+ // FIX: nouveau véto → initialiser à la moyenne des vétérinaires EXISTANTS
+ // Un véto sans historique ne doit pas avoir un score de 0 (il serait toujours choisi)
+ // ni recevoir avgDj en plus de son historique (les anciens seraient pénalisés)
+ const existingVets = vets.filter(v => {
+   const b = historicalLoad[v.id];
+   return b.dj > 0 || b.weJf > 0 || b.soir > 0;
+ });
+ const refCount = Math.max(1, existingVets.length);
+ const avgDj   = existingVets.reduce((s,v)=>s+historicalLoad[v.id].dj,   0) / refCount;
+ const avgWeJf = existingVets.reduce((s,v)=>s+historicalLoad[v.id].weJf, 0) / refCount;
+ const avgSoir = existingVets.reduce((s,v)=>s+historicalLoad[v.id].soir, 0) / refCount;
  const load = Object.fromEntries(vets.map(v=>{
  const base = historicalLoad[v.id];
- const avgDj = Object.values(historicalLoad).reduce((s,x)=>s+x.dj,0) / Math.max(1, vets.length);
- const avgWeJf = Object.values(historicalLoad).reduce((s,x)=>s+x.weJf,0) / Math.max(1, vets.length);
- const avgSoir = Object.values(historicalLoad).reduce((s,x)=>s+x.soir,0) / Math.max(1, vets.length);
- return [v.id, { dj: (base?.dj || 0) + avgDj, weJf: (base?.weJf || 0) + avgWeJf, soir: (base?.soir || 0) + avgSoir }];
+ const isNew = base.dj === 0 && base.weJf === 0 && base.soir === 0;
+ return [v.id, {
+   dj:   isNew ? avgDj   : base.dj,
+   weJf: isNew ? avgWeJf : base.weJf,
+   soir: isNew ? avgSoir : base.soir,
+ }];
  }));
 
  // ─────────────────────────────────────────────────────────────
@@ -842,7 +855,8 @@
  const mH = day.matin.find(s=>s.vets.includes(vid))?.horaire || 'matin_A';
  const pref = (!isSat && breakOK(mH,'aprem_B')) ? 'aprem_B' : 'aprem_A';
  const tgt = day.aprem.find(s=>s.horaire===pref) || day.aprem[0];
- if(tgt && !tgt.vets.includes(vid) && !aprAssigned().includes(vid)) tgt.vets.push(vid);
+ // FIX: vérifier que la pause repas (>= 1h30) est bien respectée avant d'assigner
+ if(tgt && !tgt.vets.includes(vid) && !aprAssigned().includes(vid) && breakOK(mH, tgt.horaire)) tgt.vets.push(vid);
  });
 
  aprAssigned().forEach(vid=>{
@@ -851,7 +865,8 @@
  const aH = day.aprem.find(s=>s.vets.includes(vid))?.horaire || 'aprem_A';
  const pref = breakOK('matin_B', aH) ? 'matin_B' : 'matin_A';
  const tgt = day.matin.find(s=>s.horaire===pref) || day.matin[0];
- if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid)) tgt.vets.push(vid);
+ // FIX: vérifier que la pause repas (>= 1h30) est bien respectée avant d'assigner
+ if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid) && breakOK(tgt.horaire, aH)) tgt.vets.push(vid);
  });
 
  const finalVids = [...new Set([...matAssigned(), ...aprAssigned()])];
@@ -949,16 +964,24 @@ const generateAstreintes = useCallback(()=>{
  }
  });
  });
+ // FIX: nouveau véto → initialiser à la moyenne des vétérinaires EXISTANTS
+ const existingVets2 = vets.filter(v => {
+   const b = historicalLoad[v.id];
+   return b.dj > 0 || b.weJf > 0 || b.soir > 0;
+ });
+ const refCount2 = Math.max(1, existingVets2.length);
+ const avgDj2   = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].dj,   0) / refCount2;
+ const avgWeJf2 = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].weJf, 0) / refCount2;
+ const avgSoir2 = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].soir, 0) / refCount2;
  const load = Object.fromEntries(vets.map(v=>{
  const base = historicalLoad[v.id];
- const avgDj = Object.values(historicalLoad).reduce((s,x)=>s+x.dj,0) / Math.max(1, vets.length);
- const avgWeJf = Object.values(historicalLoad).reduce((s,x)=>s+x.weJf,0) / Math.max(1, vets.length);
- const avgSoir = Object.values(historicalLoad).reduce((s,x)=>s+x.soir,0) / Math.max(1, vets.length);
- return [v.id, { dj: (base?.dj || 0) + avgDj, weJf: (base?.weJf || 0) + avgWeJf, soir: (base?.soir || 0) + avgSoir }];
+ const isNew = base.dj === 0 && base.weJf === 0 && base.soir === 0;
+ return [v.id, {
+   dj:   isNew ? avgDj2   : base.dj,
+   weJf: isNew ? avgWeJf2 : base.weJf,
+   soir: isNew ? avgSoir2 : base.soir,
+ }];
  }));
-
- const units = [];
- const addUnit = (days, reason) => {
  const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
  if(clean.length) units.push({days: clean, reason});
  };
