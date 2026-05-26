@@ -982,8 +982,10 @@ const generateAstreintes = useCallback(()=>{
    soir: isNew ? avgSoir2 : base.soir,
  }];
  }));
- const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
- if(clean.length) units.push({days: clean, reason});
+ const units = [];
+ const addUnit = (days, reason) => {
+   const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
+   if(clean.length) units.push({days: clean, reason});
  };
 
  for(let d=1; d<=numDays; d++){
