@@ -2808,8 +2808,16 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       );
     }
 
-    const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<App />);
+    try {
+      const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
+      root.render(<App />);
+    } catch(err) {
+      console.error('Erreur initialisation App', err);
+      const el = document.getElementById('gestion-root');
+      if (el) el.innerHTML = '<div style="padding:20px;color:#b91c1c;background:#fff4f4;border:1px solid #fca5a5;border-radius:8px">' +
+        '<strong>Erreur d\'application :</strong> ' + (err && err.message ? err.message : String(err)) +
+        '<br\/><small>Ouvrez la console (F12) pour plus de détails.</small></div>';
+    }
   </script>
 </body>
 </html>
