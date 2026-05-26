@@ -874,8 +874,9 @@
  newP[key] = day;
  }
 
- setAstreintes(newA);
- setPlanning(newP);
+ // FIX fuite mémoire : fusionner avec les mois existants au lieu d'écraser tout le state
+ setAstreintes(prev => ({...prev, ...newA}));
+ setPlanning(prev => ({...prev, ...newP}));
  setValidated(false);
 },[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
@@ -982,10 +983,8 @@ const generateAstreintes = useCallback(()=>{
    soir: isNew ? avgSoir2 : base.soir,
  }];
  }));
- const units = [];
- const addUnit = (days, reason) => {
-   const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
-   if(clean.length) units.push({days: clean, reason});
+ const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
+ if(clean.length) units.push({days: clean, reason});
  };
 
  for(let d=1; d<=numDays; d++){
@@ -1100,7 +1099,8 @@ const generateAstreintes = useCallback(()=>{
  if(forced.soir) newA[key].soir = forced.soir;
  }
 
- setAstreintes(newA);
+ // FIX fuite mémoire : fusionner avec les mois existants au lieu d'écraser tout le state
+ setAstreintes(prev => ({...prev, ...newA}));
 },[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
 const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
@@ -2810,16 +2810,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       );
     }
 
-    try {
-      const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-      root.render(<App />);
-    } catch(err) {
-      console.error('Erreur initialisation App', err);
-      const el = document.getElementById('gestion-root');
-      if (el) el.innerHTML = '<div style="padding:20px;color:#b91c1c;background:#fff4f4;border:1px solid #fca5a5;border-radius:8px">' +
-        '<strong>Erreur d\'application :</strong> ' + (err && err.message ? err.message : String(err)) +
-        '<br\/><small>Ouvrez la console (F12) pour plus de détails.</small></div>';
-    }
+    const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
+    root.render(<App />);
   </script>
 </body>
 </html>
