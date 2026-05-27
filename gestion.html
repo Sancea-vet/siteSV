@@ -598,15 +598,15 @@
  // ni recevoir avgDj en plus de son historique (les anciens seraient pénalisés)
  const existingVets = vets.filter(v => {
    const b = historicalLoad[v.id];
-   return b.dj > 0 || b.weJf > 0 || b.soir > 0;
+   return b && (b.dj > 0 || b.weJf > 0 || b.soir > 0);
  });
  const refCount = Math.max(1, existingVets.length);
- const avgDj   = existingVets.reduce((s,v)=>s+historicalLoad[v.id].dj,   0) / refCount;
- const avgWeJf = existingVets.reduce((s,v)=>s+historicalLoad[v.id].weJf, 0) / refCount;
- const avgSoir = existingVets.reduce((s,v)=>s+historicalLoad[v.id].soir, 0) / refCount;
+ const avgDj   = existingVets.reduce((s,v)=>s+(historicalLoad[v.id]?.dj||0),   0) / refCount;
+ const avgWeJf = existingVets.reduce((s,v)=>s+(historicalLoad[v.id]?.weJf||0), 0) / refCount;
+ const avgSoir = existingVets.reduce((s,v)=>s+(historicalLoad[v.id]?.soir||0), 0) / refCount;
  const load = Object.fromEntries(vets.map(v=>{
  const base = historicalLoad[v.id];
- const isNew = base.dj === 0 && base.weJf === 0 && base.soir === 0;
+ const isNew = !base || (base.dj === 0 && base.weJf === 0 && base.soir === 0);
  return [v.id, {
    dj:   isNew ? avgDj   : base.dj,
    weJf: isNew ? avgWeJf : base.weJf,
@@ -968,15 +968,15 @@ const generateAstreintes = useCallback(()=>{
  // FIX: nouveau véto → initialiser à la moyenne des vétérinaires EXISTANTS
  const existingVets2 = vets.filter(v => {
    const b = historicalLoad[v.id];
-   return b.dj > 0 || b.weJf > 0 || b.soir > 0;
+   return b && (b.dj > 0 || b.weJf > 0 || b.soir > 0);
  });
  const refCount2 = Math.max(1, existingVets2.length);
- const avgDj2   = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].dj,   0) / refCount2;
- const avgWeJf2 = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].weJf, 0) / refCount2;
- const avgSoir2 = existingVets2.reduce((s,v)=>s+historicalLoad[v.id].soir, 0) / refCount2;
+ const avgDj2   = existingVets2.reduce((s,v)=>s+(historicalLoad[v.id]?.dj||0),   0) / refCount2;
+ const avgWeJf2 = existingVets2.reduce((s,v)=>s+(historicalLoad[v.id]?.weJf||0), 0) / refCount2;
+ const avgSoir2 = existingVets2.reduce((s,v)=>s+(historicalLoad[v.id]?.soir||0), 0) / refCount2;
  const load = Object.fromEntries(vets.map(v=>{
  const base = historicalLoad[v.id];
- const isNew = base.dj === 0 && base.weJf === 0 && base.soir === 0;
+ const isNew = !base || (base.dj === 0 && base.weJf === 0 && base.soir === 0);
  return [v.id, {
    dj:   isNew ? avgDj2   : base.dj,
    weJf: isNew ? avgWeJf2 : base.weJf,
