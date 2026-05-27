@@ -334,6 +334,27 @@
       {id:'r7',type:'horaire_rule',slot:'aprem',dayType:'all',weekParity:'odd', horaire:'aprem_B'},
     ];
 
+    const PALETTE_ASV = ['#ec4899','#f97316','#eab308','#84cc16','#06b6d4','#8b5cf6','#f43f5e','#10b981'];
+    const DEFAULT_ASVS = [
+      {id:'a1',name:'ASV 1',color:PALETTE_ASV[0]},
+      {id:'a2',name:'ASV 2',color:PALETTE_ASV[1]},
+      {id:'a3',name:'ASV 3',color:PALETTE_ASV[2]},
+      {id:'a4',name:'ASV 4',color:PALETTE_ASV[3]},
+    ];
+    const DEFAULT_ASV_RULES = { hoursPerWeek: 35, lunchBreak: 1 };
+
+    // ─── Utilitaires horaires ASV ──────────────────────────────
+    const HORAIRE_TIMES = {
+      matin_A: {start:8.5,  end:12.0},
+      matin_B: {start:9.5,  end:13.5},
+      aprem_A: {start:13.5, end:17.0},
+      aprem_B: {start:15.0, end:19.0},
+    };
+    const formatHTime = (h) => {
+      const hrs=Math.floor(h), mins=Math.round((h-hrs)*60);
+      return `${hrs}h${mins.toString().padStart(2,'0')}`;
+    };
+
     function App() {
       const now = new Date();
       const [tab,   setTab]   = useState('planning');
@@ -348,6 +369,9 @@
       const [validated, setValidated] = useState(false);
       const [yearlyData,setYearlyData]= useState({});
       const [astreintes,setAstreintes]= useState({});
+      const [asvs,      setAsvs]      = useState(DEFAULT_ASVS);
+      const [asvRules,  setAsvRules]  = useState(DEFAULT_ASV_RULES);
+      const [asvPlanning,setAsvPlanning]=useState({});
       const [editDay,   setEditDay]   = useState(null);
       const [gclientId, setGclientId] = useState('');
       const [calId,     setCalId]     = useState('primary');
@@ -418,6 +442,9 @@
             if(d.validated !== undefined) setValidated(d.validated);
             if(d.yearlyData) setYearlyData(d.yearlyData);
             if(d.astreintes) setAstreintes(d.astreintes);
+            if(d.asvs)       setAsvs(d.asvs);
+            if(d.asvRules)   setAsvRules(d.asvRules);
+            if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
             if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
             if(d.gclientId)  setGclientId(d.gclientId);
             if(d.calId)      setCalId(d.calId);
@@ -447,6 +474,9 @@
               validated: data.validated,
               yearlyData: data.yearlyData,
               astreintes: data.astreintes,
+              asvs: data.asvs,
+              asvRules: data.asvRules,
+              asvPlanning: data.asvPlanning,
               nav: { year: data.year, month: data.month },
               gclientId: data.gclientId,
               calId: data.calId,
@@ -461,18 +491,18 @@
 
       useEffect(()=>{
         if(loaded && apiReady)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,apiReady});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,year,month,gclientId,calId,loaded,apiReady]);
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,year,month,gclientId,calId,loaded,apiReady});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,year,month,gclientId,calId,loaded,apiReady]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
-        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId};
+        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,gclientId,calId};
         const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
         URL.revokeObjectURL(url);
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,gclientId,calId]);
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,gclientId,calId]);
 
       const importJSON = useCallback(()=>{
         const input = document.createElement('input');
@@ -491,6 +521,9 @@
               if(d.validated !== undefined) setValidated(d.validated);
               if(d.yearlyData) setYearlyData(d.yearlyData);
               if(d.astreintes) setAstreintes(d.astreintes);
+              if(d.asvs)       setAsvs(d.asvs);
+              if(d.asvRules)   setAsvRules(d.asvRules);
+              if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
               if(d.gclientId)  setGclientId(d.gclientId);
               if(d.calId)      setCalId(d.calId);
               alert('✅ Import réussi !');
@@ -1106,6 +1139,85 @@ const generateAstreintes = useCallback(()=>{
  setAstreintes(prev => ({...prev, ...newA}));
 },[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
 
+      // ── Génération Planning ASV ────────────────────────────────
+      const generateASVPlanning = useCallback(()=>{
+        const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+        const newASVP = {};
+        // weeklyHours[weekNum][asvId] = heures cumulées
+        const weeklyHours = {};
+        const getWH = (aid,wn) => (weeklyHours[wn]||{})[aid]||0;
+        const addWH = (aid,wn,h) => {
+          if(!weeklyHours[wn]) weeklyHours[wn]={};
+          weeklyHours[wn][aid]=(weeklyHours[wn][aid]||0)+h;
+        };
+        // Tri ASV par charge hebdomadaire croissante (équilibrage)
+        const sortedAsvsByWeek = (weekNum) =>
+          [...asvs].sort((a,b)=>getWH(a.id,weekNum)-getWH(b.id,weekNum));
+
+        for(let d=1;d<=numDays;d++){
+          const key=dk(year,month,d);
+          const dow=dowJS(year,month,d);
+          const isHoliday=holidays.has(key);
+          const closed=!openDays[dow]||isHoliday;
+          if(closed) continue;
+          const dp=planning[key];
+          if(!dp) continue;
+
+          // Collecte toutes les plages horaires veto actives du jour
+          const starts=[], ends=[], activeVets=new Set();
+          ['matin','aprem'].forEach(slot=>{
+            toSlotArr(dp[slot]).forEach(subSlot=>{
+              if(!subSlot.vets||subSlot.vets.length===0) return;
+              const t=HORAIRE_TIMES[subSlot.horaire];
+              if(!t) return;
+              starts.push(t.start);
+              ends.push(t.end);
+              subSlot.vets.forEach(vid=>activeVets.add(vid));
+            });
+          });
+          if(activeVets.size===0||starts.length===0) continue;
+
+          const asvStart = Math.min(...starts) - 0.5;   // 30min avant 1er véto
+          const asvEnd   = Math.max(...ends)   + 0.5;   // 30min après dernier véto
+          const rawH     = asvEnd - asvStart;
+          const hoursDay = Math.max(0, rawH - asvRules.lunchBreak); // - pause déjeuner
+
+          const weekNum  = isoWeek(year,month,d);
+          const needed   = activeVets.size; // 1 ASV par véto présent
+          const assigned = [];
+          const sorted   = sortedAsvsByWeek(weekNum);
+
+          for(const asv of sorted){
+            if(assigned.length>=needed) break;
+            const cur=getWH(asv.id,weekNum);
+            // Tolérance +30min (0.5h) pour ne pas bloquer sur des arrondis
+            if(cur+hoursDay<=asvRules.hoursPerWeek+0.5){
+              assigned.push({asvId:asv.id,start:asvStart,end:asvEnd,hoursDay});
+              addWH(asv.id,weekNum,hoursDay);
+            }
+          }
+          // Si pas assez d'ASV dispo (quota semaine dépassé), on les prend quand même
+          // en marquant l'alerte, plutôt que de laisser vide
+          if(assigned.length<needed){
+            for(const asv of sorted){
+              if(assigned.length>=needed) break;
+              if(!assigned.find(x=>x.asvId===asv.id)){
+                assigned.push({asvId:asv.id,start:asvStart,end:asvEnd,hoursDay,overQuota:true});
+                addWH(asv.id,weekNum,hoursDay);
+              }
+            }
+          }
+          if(assigned.length>0) newASVP[key]=assigned;
+        }
+        setAsvPlanning(prev=>{
+          const next={...prev};
+          // Effacer le mois courant puis remplir
+          Object.keys(next).filter(k=>k.startsWith(prefix)).forEach(k=>delete next[k]);
+          Object.assign(next,newASVP);
+          return next;
+        });
+      },[year,month,numDays,planning,openDays,holidays,asvs,asvRules]);
+
 const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
       const holidays = useMemo(()=>getFrenchHolidays(year),[year]);
@@ -1246,6 +1358,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
       const TABS=[
         {id:'planning',label:'Planning',icon:'📅'},
+        {id:'asv',     label:'Planning ASV',icon:'👩‍⚕️'},
         {id:'equipe',  label:'Équipe',  icon:'👥'},
         {id:'regles',  label:'Règles',  icon:'⚙️'},
         {id:'stats',   label:'Statistiques', icon:'📊'},
@@ -1319,6 +1432,16 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               onGenerateAstreintes={generateAstreintes} />
           )}
           {tab==='equipe'&&<EquipeTab vets={vets} setVets={setVets}/>}
+          {tab==='asv'&&(
+            <ASVTab year={year} month={month} numDays={numDays} startCol={startCol}
+              vets={vets} planning={planning} openDays={openDays}
+              asvs={asvs} setAsvs={setAsvs}
+              asvRules={asvRules} setAsvRules={setAsvRules}
+              asvPlanning={asvPlanning}
+              holidays={holidays}
+              onGenerate={generateASVPlanning}
+              isoWeek={isoWeek} weekParity={weekParity}/>
+          )}
           {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays}/>}
           {tab==='stats'&&(
             <StatsTab vets={vets} yearlyData={yearlyData} currentYear={year}
@@ -1997,6 +2120,376 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           borderRadius:8,padding:'8px 12px',fontSize:11,color:'#0369a1',lineHeight:1.6}}>
           💡 <strong>Génération :</strong> l'astreinte midi suit automatiquement le soir. 
           Utilisez "Modifier" pour définir un véto différent sur la pause midi.
+        </div>
+      );
+    }
+
+    // ─── Onglet Planning ASV ────────────────────────────────────
+    function ASVTab({year,month,numDays,startCol,vets,planning,openDays,asvs,setAsvs,asvRules,setAsvRules,asvPlanning,holidays,onGenerate,isoWeek,weekParity}){
+      const [section,setSection]=useState('planning'); // 'planning'|'equipe'|'regles'
+
+      // Calcul heures semaine par ASV pour le mois courant
+      const weeklyStats = useMemo(()=>{
+        const prefix=`${year}-${String(month+1).padStart(2,'0')}-`;
+        const stats={}; // {weekNum: {asvId: h}}
+        Object.entries(asvPlanning).filter(([k])=>k.startsWith(prefix)).forEach(([key,slots])=>{
+          const [y,m,d]=key.split('-').map(Number);
+          const wn=isoWeek(y,m-1,d);
+          slots.forEach(({asvId,hoursDay})=>{
+            if(!stats[wn]) stats[wn]={};
+            stats[wn][asvId]=(stats[wn][asvId]||0)+hoursDay;
+          });
+        });
+        return stats;
+      },[asvPlanning,year,month,isoWeek]);
+
+      // Alertes dépassement quota
+      const overQuotaAlerts = useMemo(()=>{
+        const alerts=[];
+        Object.entries(weeklyStats).forEach(([wn,asvMap])=>{
+          Object.entries(asvMap).forEach(([aid,h])=>{
+            if(h>asvRules.hoursPerWeek+0.5){
+              const a=asvs.find(x=>x.id===aid);
+              alerts.push({weekNum:wn,asvId:aid,name:a?.name||'ASV',hours:h});
+            }
+          });
+        });
+        return alerts;
+      },[weeklyStats,asvRules,asvs]);
+
+      const hasPlanning=Object.keys(asvPlanning).some(k=>k.startsWith(`${year}-${String(month+1).padStart(2,'0')}-`));
+      const hasVetPlanning=Object.keys(planning).some(k=>k.startsWith(`${year}-${String(month+1).padStart(2,'0')}-`));
+
+      // Semaines pour la grille
+      const weeks=useMemo(()=>{
+        const cells=Array(startCol).fill(null);
+        for(let d=1;d<=numDays;d++) cells.push(d);
+        while(cells.length%7!==0) cells.push(null);
+        const w=[];
+        for(let i=0;i<cells.length;i+=7) w.push(cells.slice(i,i+7));
+        return w;
+      },[startCol,numDays]);
+
+      return(
+        <div style={{fontFamily:"'Inter',sans-serif"}}>
+          <div style={{marginBottom:20}}>
+            <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:'#1f2937',marginBottom:4}}>Planning ASV</h2>
+            <p style={{color:'#6b7280',fontSize:13}}>Généré automatiquement depuis le planning vétérinaire — 1 ASV idéalement par véto présent</p>
+          </div>
+
+          {/* Sous-navigation */}
+          <div style={{display:'flex',gap:4,background:'#fff',border:'1px solid #e2e8f0',borderRadius:12,padding:4,marginBottom:20,width:'fit-content'}}>
+            {[['planning','📅 Calendrier'],['equipe','👩‍⚕️ Équipe ASV'],['regles','⚙️ Règles']].map(([s,l])=>(
+              <button key={s} onClick={()=>setSection(s)}
+                style={{padding:'7px 16px',borderRadius:8,border:'none',cursor:'pointer',
+                  fontFamily:"'Inter',sans-serif",fontSize:13,fontWeight:section===s?600:400,
+                  background:section===s?'#0d9488':'transparent',
+                  color:section===s?'#fff':'#6b7280',transition:'all .15s'}}>
+                {l}
+              </button>
+            ))}
+          </div>
+
+          {section==='regles'&&(
+            <ASVRegles asvRules={asvRules} setAsvRules={setAsvRules}/>
+          )}
+
+          {section==='equipe'&&(
+            <ASVEquipe asvs={asvs} setAsvs={setAsvs}/>
+          )}
+
+          {section==='planning'&&(
+            <>
+              {/* Barre d'actions */}
+              <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:16,flexWrap:'wrap'}}>
+                {!hasVetPlanning&&(
+                  <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,padding:'10px 16px',fontSize:13,color:'#92400e',width:'100%'}}>
+                    ⚠️ Aucun planning vétérinaire généré pour ce mois. Générez d'abord le planning véto depuis l'onglet 📅 Planning.
+                  </div>
+                )}
+                {hasVetPlanning&&(
+                  <button onClick={onGenerate} className="btn-teal">
+                    ⚡ Générer planning ASV
+                  </button>
+                )}
+                {hasPlanning&&overQuotaAlerts.length>0&&(
+                  <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:10,padding:'10px 16px',fontSize:13,color:'#dc2626',flex:1}}>
+                    ⚠️ {overQuotaAlerts.length} dépassement(s) de quota — {overQuotaAlerts.map(a=>`${a.name} S${a.weekNum}: ${a.hours.toFixed(1)}h`).join(' · ')}
+                  </div>
+                )}
+              </div>
+
+              {/* Statistiques hebdomadaires ASV */}
+              {hasPlanning&&(
+                <div className="g-card" style={{marginBottom:16}}>
+                  <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:12,textTransform:'uppercase',letterSpacing:'.05em'}}>Heures par semaine</h3>
+                  <div style={{overflowX:'auto'}}>
+                    <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
+                      <thead>
+                        <tr style={{background:'#f8fafc'}}>
+                          <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>ASV</th>
+                          {Object.keys(weeklyStats).sort((a,b)=>+a-+b).map(wn=>(
+                            <th key={wn} style={{padding:'8px 12px',textAlign:'center',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>
+                              S{wn}
+                            </th>
+                          ))}
+                          <th style={{padding:'8px 12px',textAlign:'center',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>Total mois</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {asvs.map(a=>{
+                          const total=Object.values(weeklyStats).reduce((s,m)=>s+(m[a.id]||0),0);
+                          return(
+                            <tr key={a.id} style={{borderBottom:'1px solid #f1f5f9'}}>
+                              <td style={{padding:'8px 12px',display:'flex',alignItems:'center',gap:7}}>
+                                <div style={{width:9,height:9,borderRadius:'50%',background:a.color,flexShrink:0}}/>
+                                <span style={{fontWeight:500,color:'#1f2937'}}>{a.name}</span>
+                              </td>
+                              {Object.keys(weeklyStats).sort((x,y)=>+x-+y).map(wn=>{
+                                const h=(weeklyStats[wn]||{})[a.id]||0;
+                                const over=h>asvRules.hoursPerWeek+0.5;
+                                return(
+                                  <td key={wn} style={{padding:'8px 12px',textAlign:'center',
+                                    color:over?'#dc2626':h>0?'#059669':'#9ca3af',
+                                    fontWeight:h>0?600:400,
+                                    background:over?'#fef2f2':h>asvRules.hoursPerWeek*0.9?'#f0fdf4':'transparent'}}>
+                                    {h>0?h.toFixed(1)+'h':'—'}
+                                    {over&&<span style={{fontSize:9,marginLeft:2}}>⚠️</span>}
+                                  </td>
+                                );
+                              })}
+                              <td style={{padding:'8px 12px',textAlign:'center',fontWeight:700,color:'#0d9488'}}>
+                                {total>0?total.toFixed(1)+'h':'—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p style={{fontSize:11,color:'#9ca3af',marginTop:8}}>
+                    Quota hebdomadaire : <strong>{asvRules.hoursPerWeek}h</strong> · Pause déjeuner : <strong>{asvRules.lunchBreak}h</strong> · 
+                    Début : 30 min avant 1er véto · Fin : 30 min après dernier véto
+                  </p>
+                </div>
+              )}
+
+              {/* Grille calendrier ASV */}
+              <div className="cal-grid">
+                <div className="cal-header-row">
+                  {JOURS.map((j,i)=><div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>)}
+                </div>
+                {weeks.map((week,wi)=>(
+                  <div key={wi} className="cal-week">
+                    {week.map((day,di)=>{
+                      if(!day) return <div key={di} className="cal-cell empty"/>;
+                      const key=dk(year,month,day);
+                      const dow=dowJS(year,month,day);
+                      const isHoliday=holidays&&holidays.has(key);
+                      const closed=!openDays[dow]||isHoliday;
+                      const today=new Date().toDateString()===new Date(year,month,day).toDateString();
+                      const we=isWE(dow);
+                      const slots=asvPlanning[key]||[];
+                      const wn=isoWeek(year,month,day);
+                      const wp=weekParity(year,month,day);
+
+                      return(
+                        <div key={di} className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')}>
+                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
+                            <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
+                              {day}
+                            </div>
+                            {!closed&&di===0&&(
+                              <span style={{fontSize:8,fontWeight:700,color:wp==='even'?'#1d4ed8':'#be185d',
+                                background:wp==='even'?'#dbeafe':'#fce7f3',borderRadius:4,padding:'1px 4px'}}>
+                                S{wn}
+                              </span>
+                            )}
+                          </div>
+                          {closed?(
+                            <div style={{fontSize:9,color:isHoliday?'#b45309':'#d1d5db',textTransform:'uppercase',letterSpacing:'.05em',fontWeight:isHoliday?600:400}}>
+                              {isHoliday?'Férié':'Fermé'}
+                            </div>
+                          ):slots.length>0?(
+                            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                              {/* Horaire ASV */}
+                              <div style={{background:'#fdf2f8',borderRadius:4,padding:'2px 5px',marginBottom:2}}>
+                                <div style={{fontSize:8,fontWeight:700,color:'#9d174d',letterSpacing:'.04em'}}>
+                                  🕐 {formatHTime(slots[0].start)}–{formatHTime(slots[0].end)}
+                                </div>
+                                <div style={{fontSize:8,color:'#be185d',fontWeight:500}}>
+                                  {slots[0].hoursDay.toFixed(1)}h • pause {asvRules.lunchBreak}h
+                                </div>
+                              </div>
+                              {/* Chips ASV assignées */}
+                              {slots.map((slot,si)=>{
+                                const a=asvs.find(x=>x.id===slot.asvId);
+                                if(!a) return null;
+                                return(
+                                  <div key={si} style={{display:'flex',alignItems:'center',gap:3,
+                                    borderRadius:4,padding:'1px 4px',
+                                    background:slot.overQuota?'#fef2f2':a.color+'18',
+                                    border:'1px solid '+(slot.overQuota?'#fecaca':a.color+'44')}}>
+                                    <div style={{width:5,height:5,borderRadius:'50%',background:a.color,flexShrink:0}}/>
+                                    <span style={{fontSize:9,fontWeight:500,color:slot.overQuota?'#dc2626':a.color}}>
+                                      {a.name}{slot.overQuota&&' ⚠'}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ):hasVetPlanning&&!we&&planning[key]?(
+                            <div style={{fontSize:9,color:'#9ca3af',fontStyle:'italic'}}>Non généré</div>
+                          ):null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              {/* Légende */}
+              <div className="legend" style={{marginTop:12}}>
+                {asvs.map(a=>(
+                  <div key={a.id} className="legend-item">
+                    <div className="legend-dot" style={{background:a.color}}/>
+                    {a.name}
+                  </div>
+                ))}
+                <div style={{marginLeft:'auto',fontSize:11,color:'#9ca3af'}}>
+                  Horaire = début véto −30 min → fin véto +30 min · pause midi {asvRules.lunchBreak}h minimum
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // ─── Règles ASV ────────────────────────────────────────────
+    function ASVRegles({asvRules,setAsvRules}){
+      return(
+        <div style={{maxWidth:560}}>
+          <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937',marginBottom:4}}>Règles ASV</h3>
+          <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Ces paramètres guident la génération automatique du planning ASV.</p>
+
+          <div className="g-card" style={{marginBottom:16}}>
+            <h4 style={{fontSize:13,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:14}}>Temps de travail</h4>
+            <div style={{display:'flex',flexDirection:'column',gap:14}}>
+
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{flex:1}}>
+                  <span className="g-label">Heures par semaine</span>
+                  <p style={{fontSize:12,color:'#9ca3af',marginBottom:6}}>Durée contractuelle hebdomadaire (défaut légal : 35h)</p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <button onClick={()=>setAsvRules(r=>({...r,hoursPerWeek:Math.max(20,r.hoursPerWeek-0.5)}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                  <span style={{fontSize:18,fontWeight:700,color:'#0d9488',minWidth:48,textAlign:'center'}}>
+                    {asvRules.hoursPerWeek}h
+                  </span>
+                  <button onClick={()=>setAsvRules(r=>({...r,hoursPerWeek:Math.min(48,r.hoursPerWeek+0.5)}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                </div>
+              </div>
+
+              <div className="g-divider"/>
+
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{flex:1}}>
+                  <span className="g-label">Pause déjeuner minimum</span>
+                  <p style={{fontSize:12,color:'#9ca3af',marginBottom:6}}>Durée minimum garantie de la pause repas (hors temps de travail)</p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <button onClick={()=>setAsvRules(r=>({...r,lunchBreak:Math.max(0.5,+(r.lunchBreak-0.25).toFixed(2))}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                  <span style={{fontSize:18,fontWeight:700,color:'#0d9488',minWidth:48,textAlign:'center'}}>
+                    {asvRules.lunchBreak}h
+                  </span>
+                  <button onClick={()=>setAsvRules(r=>({...r,lunchBreak:Math.min(2,+(r.lunchBreak+0.25).toFixed(2))}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          {/* Règles fixes */}
+          <div className="g-card" style={{border:'1.5px solid #99f6e4',background:'#f0fdfa'}}>
+            <h4 style={{fontSize:13,fontWeight:600,color:'#0d9488',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:10}}>
+              🔒 Règles fixes — non modifiables
+            </h4>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {[
+                '⏰ Arrivée ASV : 30 min avant le 1er véto (début du créneau matin)',
+                '🔚 Départ ASV : 30 min après le dernier véto (fin du créneau après-midi)',
+                `🍽 Pause déjeuner : minimum ${asvRules.lunchBreak}h (entre fin matin et début après-midi)`,
+                '👩‍⚕️ Affectation idéale : 1 ASV par véto présent',
+                '⚖️ Équilibrage hebdomadaire : priorité aux ASV les moins chargées',
+              ].map((t,i)=>(
+                <div key={i} style={{display:'flex',gap:8,padding:'8px 12px',background:'#fff',borderRadius:8,
+                  border:'1px solid #e2e8f0',fontSize:13,color:'#374151'}}>
+                  {t}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Équipe ASV ─────────────────────────────────────────────
+    function ASVEquipe({asvs,setAsvs}){
+      const [name,setName]=useState('');
+      const add=()=>{
+        if(!name.trim()) return;
+        setAsvs(prev=>[...prev,{id:'a'+uid(),name:name.trim(),color:PALETTE_ASV[prev.length%PALETTE_ASV.length]}]);
+        setName('');
+      };
+      const remove=id=>setAsvs(prev=>prev.filter(a=>a.id!==id));
+      const setColor=(id,c)=>setAsvs(prev=>prev.map(a=>a.id===id?{...a,color:c}:a));
+      const update=(id,val)=>setAsvs(prev=>prev.map(a=>a.id===id?{...a,name:val}:a));
+
+      return(
+        <div style={{maxWidth:620}}>
+          <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937',marginBottom:4}}>Équipe ASV</h3>
+          <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Le nombre d'ASV idéal correspond au maximum de vétérinaires simultanément présents.</p>
+
+          <div className="g-card" style={{marginBottom:16}}>
+            <h4 style={{fontSize:13,fontWeight:600,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:12}}>Ajouter une ASV</h4>
+            <div style={{display:'flex',gap:8,alignItems:'flex-end'}}>
+              <div style={{flex:1}}>
+                <span className="g-label">Nom</span>
+                <input value={name} onChange={e=>setName(e.target.value)} placeholder="Sophie, Marie…"
+                  className="g-input" style={{width:'100%'}} onKeyDown={e=>e.key==='Enter'&&add()}/>
+              </div>
+              <button onClick={add} className="btn-teal">Ajouter</button>
+            </div>
+          </div>
+
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {asvs.map(a=>(
+              <div key={a.id} className="vet-row">
+                <div style={{width:14,height:14,borderRadius:'50%',background:a.color,flexShrink:0}}/>
+                <input value={a.name} onChange={e=>update(a.id,e.target.value)}
+                  className="g-input" style={{flex:1,minWidth:120}}/>
+                <div style={{display:'flex',gap:4,flexWrap:'wrap',maxWidth:140}}>
+                  {PALETTE_ASV.map(c=>(
+                    <div key={c} onClick={()=>setColor(a.id,c)} style={{
+                      width:14,height:14,borderRadius:'50%',background:c,cursor:'pointer',
+                      border:a.color===c?'2.5px solid #1f2937':'2px solid transparent',
+                      transform:a.color===c?'scale(1.2)':'none',transition:'all .1s'}}/>
+                  ))}
+                </div>
+                <button onClick={()=>remove(a.id)} className="btn-danger-soft">✕</button>
+              </div>
+            ))}
+            {asvs.length===0&&<p style={{color:'#9ca3af',fontSize:13}}>Aucune ASV enregistrée.</p>}
+          </div>
         </div>
       );
     }
