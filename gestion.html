@@ -975,16 +975,19 @@ const generateAstreintes = useCallback(()=>{
  const avgWeJf2 = existingVets2.reduce((s,v)=>s+(historicalLoad[v.id]?.weJf||0), 0) / refCount2;
  const avgSoir2 = existingVets2.reduce((s,v)=>s+(historicalLoad[v.id]?.soir||0), 0) / refCount2;
  const load = Object.fromEntries(vets.map(v=>{
- const base = historicalLoad[v.id];
- const isNew = !base || (base.dj === 0 && base.weJf === 0 && base.soir === 0);
- return [v.id, {
-   dj:   isNew ? avgDj2   : base.dj,
-   weJf: isNew ? avgWeJf2 : base.weJf,
-   soir: isNew ? avgSoir2 : base.soir,
- }];
+   const base = historicalLoad[v.id];
+   const isNew = !base || (base.dj === 0 && base.weJf === 0 && base.soir === 0);
+   return [v.id, {
+     dj:   isNew ? avgDj2   : base.dj,
+     weJf: isNew ? avgWeJf2 : base.weJf,
+     soir: isNew ? avgSoir2 : base.soir,
+   }];
  }));
- const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
- if(clean.length) units.push({days: clean, reason});
+
+ const units = [];
+ const addUnit = (days, reason) => {
+   const clean = [...new Set(days.filter(x=>x>=1 && x<=numDays))].sort((a,b)=>a-b);
+   if(clean.length) units.push({days: clean, reason});
  };
 
  for(let d=1; d<=numDays; d++){
