@@ -152,6 +152,23 @@
       .cal-cell{min-height:80px;padding:4px 3px}
       .plan-tab .tab-label{display:none}
     }
+
+    /* ASV Day Grid Modal */
+    .asv-modal-box{background:#fff;border-radius:20px;width:95vw;max-width:980px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,.25)}
+    .asv-grid-wrap{overflow:auto;flex:1;cursor:crosshair}
+    .asv-grid-tbl{border-collapse:collapse;table-layout:fixed}
+    .asv-grid-tbl th{padding:6px 4px;font-size:10px;font-weight:700;text-align:center;position:sticky;top:0;background:#fff;z-index:3;border-bottom:2px solid #e2e8f0;white-space:nowrap}
+    .asv-grid-tbl .asv-th-time{width:44px;min-width:44px;text-align:right;padding-right:8px;color:#6b7280;font-size:11px}
+    .asv-grid-tbl .asv-th-cov{width:28px;min-width:28px}
+    .asv-grid-cell{width:70px;min-width:70px;height:10px;cursor:pointer;transition:none;user-select:none;-webkit-user-select:none;box-sizing:border-box}
+    .asv-grid-row.hr td{border-top:1.5px solid #e2e8f0}
+    .asv-grid-row.hh td{border-top:1px dashed #f1f5f9}
+    .asv-time-lbl{font-size:8px;text-align:right;padding:0 6px;color:#d1d5db;vertical-align:middle;white-space:nowrap}
+    .asv-time-lbl.hr{color:#6b7280;font-size:9px;font-weight:600}
+    .asv-time-lbl.hh{color:#9ca3af}
+    .asv-cov-cell{font-size:8px;text-align:center;vertical-align:middle}
+    .asv-gantt-row{position:relative;height:5px;margin-bottom:2px;background:#f8fafc;border-radius:2px;overflow:hidden}
+    .asv-gantt-seg{position:absolute;top:0;height:100%;border-radius:2px;pointer-events:none}
   </style>
 </head>
 <body>
@@ -1146,186 +1163,206 @@ const generateAstreintes = useCallback(()=>{
       // ── Génération Planning ASV ────────────────────────────────
       const generateASVPlanning = useCallback(()=>{
         const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
-
-        // ── Utilitaires heures ──────────────────────────────────
-        const roundQ = h => Math.round(h*4)/4; // arrondi au quart d'heure
-
-        // Chevauchement entre [s1,e1] et [s2,e2]
+        const roundQ = h => Math.round(h*4)/4;
         const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
 
-        // Indisponibilité ASV sur un créneau horaire un jour donné
-        const isUnavailAt = (asvId, dateKey, startH, endH) => {
-          return asvUnavailRanges.some(r => {
-            if(r.asvId !== asvId) return false;
-            // Le range couvre-t-il ce jour ?
-            if(dateKey < r.fromDate || dateKey > r.toDate) return false;
-            // Bornes temps ce jour-là
-            const rStart = dateKey===r.fromDate ? r.fromTime : 0;
-            const rEnd   = dateKey===r.toDate   ? r.toTime   : 24;
-            return overlaps(startH, endH, rStart, rEnd);
+        // ── Indisponibilité ASV sur un créneau ──────────────────
+        const isUnavailAt = (asvId, dateKey, startH, endH) =>
+          asvUnavailRanges.some(r => {
+            if(r.asvId !== asvId || dateKey < r.fromDate || dateKey > r.toDate) return false;
+            const rS = dateKey===r.fromDate ? r.fromTime : 0;
+            const rE = dateKey===r.toDate   ? r.toTime   : 24;
+            return overlaps(startH, endH, rS, rE);
           });
+
+        // ── Horaires staggerés pour N ASVs journée complète ─────
+        // S=debut ASV, E=fin ASV, lb=pause déj.
+        // Pauses séquentielles (pas de chevauchement → couverture continue)
+        const computeStaggered = (asvIds, S, E, lb) => {
+          const res = {};
+          const n = asvIds.length;
+          if(n===0) return res;
+          // Fenêtre lunch idéale : centrer autour de 12h30, sans rogner les marges
+          const minLS = roundQ(S + 0.5);          // 30min de travail minimum avant la pause
+          const maxLE = roundQ(E - 0.5);          // 30min après la pause
+          const totalSpan = n * lb;
+          // Premier démarrage de pause = centre - totalSpan/2, clampé
+          const idealFirst = roundQ(13.0 - totalSpan/2); // vise 13h pour le centre des pauses
+          const firstLS = Math.max(minLS, Math.min(idealFirst, roundQ(maxLE - totalSpan)));
+          asvIds.forEach((asvId, i) => {
+            let ls = roundQ(firstLS + i * lb);
+            let le = roundQ(ls + lb);
+            // Sécurité : reclampe si déborde
+            if(le > maxLE){ le = maxLE; ls = roundQ(le - lb); }
+            if(ls < minLS){ ls = minLS; le = roundQ(ls + lb); }
+            const segs = [];
+            if(ls > S) segs.push({start:S, end:ls});
+            if(le < E) segs.push({start:le, end:E});
+            if(segs.length===0) segs.push({start:S, end:E});
+            res[asvId] = {segments:segs};
+          });
+          return res;
         };
 
-        // ── Calcul info journalière ─────────────────────────────
+        // ── Calcul infos journalières ───────────────────────────
         const computeDayInfo = (d) => {
           const key = dk(year,month,d);
           const dow = dowJS(year,month,d);
           if(!openDays[dow] || holidays.has(key)) return null;
-          const dp = planning[key];
-          if(!dp) return null;
-
-          const matinStarts=[], matinEnds=[], apremStarts=[], apremEnds=[];
-          const activeVets=new Set();
-
+          const dp = planning[key]; if(!dp) return null;
+          const mS=[],mE=[],aS=[],aE=[], vetSet=new Set();
           toSlotArr(dp.matin).forEach(s=>{
-            if(!s.vets||s.vets.length===0) return;
+            if(!s.vets||!s.vets.length) return;
             const t=HORAIRE_TIMES[s.horaire]; if(!t) return;
-            matinStarts.push(t.start); matinEnds.push(t.end);
-            s.vets.forEach(v=>activeVets.add(v));
+            mS.push(t.start); mE.push(t.end); s.vets.forEach(v=>vetSet.add(v));
           });
           toSlotArr(dp.aprem).forEach(s=>{
-            if(!s.vets||s.vets.length===0) return;
+            if(!s.vets||!s.vets.length) return;
             const t=HORAIRE_TIMES[s.horaire]; if(!t) return;
-            apremStarts.push(t.start); apremEnds.push(t.end);
-            s.vets.forEach(v=>activeVets.add(v));
+            aS.push(t.start); aE.push(t.end); s.vets.forEach(v=>vetSet.add(v));
           });
-
-          if(activeVets.size===0) return null;
-
-          const allStarts=[...matinStarts,...apremStarts];
-          const allEnds  =[...matinEnds,  ...apremEnds];
-          const asvStart = roundQ(Math.min(...allStarts) - 0.5);
-          const asvEnd   = roundQ(Math.max(...allEnds)   + 0.5);
-          const hasMorning  = matinEnds.length > 0;
-          const hasAfternoon= apremStarts.length > 0;
-
-          // Fin du créneau matin ASV = fin du dernier véto matin + 30min
-          const morningEnd = hasMorning  ? roundQ(Math.max(...matinEnds) + 0.5) : null;
-          // Début créneau aprem ASV = début du 1er véto aprem - 30min
-          const afternoonStart = hasAfternoon ? roundQ(Math.min(...apremStarts) - 0.5) : null;
-
-          // Heures par type
-          const hoursFullDay = roundQ(Math.max(0, (asvEnd - asvStart) - asvRules.lunchBreak));
-          const hoursMorning  = hasMorning   ? roundQ(morningEnd - asvStart) : 0;
-          const hoursAfternoon= hasAfternoon ? roundQ(asvEnd - afternoonStart) : 0;
-
-          return {key, vetCount: activeVets.size,
-            asvStart, asvEnd, morningEnd, afternoonStart,
-            hasMorning, hasAfternoon,
-            hoursFullDay, hoursMorning, hoursAfternoon};
+          if(vetSet.size===0) return null;
+          const allS=[...mS,...aS], allE=[...mE,...aE];
+          const asvStart = roundQ(Math.min(...allS)-0.5);
+          const asvEnd   = roundQ(Math.max(...allE)+0.5);
+          const hasMatin = mE.length>0, hasAprem = aS.length>0;
+          const morningEnd     = hasMatin ? roundQ(Math.max(...mE)+0.5) : null;
+          const afternoonStart = hasAprem ? roundQ(Math.min(...aS)-0.5) : null;
+          // Heures effective : pause déj seulement si journée complète (matin+aprem)
+          const fullDay = hasMatin && hasAprem;
+          const hoursFullDay = roundQ(fullDay ? (asvEnd-asvStart)-asvRules.lunchBreak : (asvEnd-asvStart));
+          const hoursMatin = hasMatin ? roundQ(morningEnd - asvStart) : 0;
+          return {key, vetCount:vetSet.size, asvStart, asvEnd, morningEnd, afternoonStart,
+                  hasMatin, hasAprem, fullDay, hoursFullDay, hoursMatin};
         };
 
-        // ── Construire carte jour → semaine ──────────────────────
-        const dayInfos = {}; // d → dayInfo
-        const weekDays = {}; // weekNum → [d, ...]
+        // ── Indexation semaines ─────────────────────────────────
+        const dayInfoMap = {}, weekDaysMap = {};
         for(let d=1;d<=numDays;d++){
-          const info = computeDayInfo(d);
-          if(!info) continue;
-          dayInfos[d] = info;
-          const wn = isoWeek(year,month,d);
-          if(!weekDays[wn]) weekDays[wn]=[];
-          weekDays[wn].push(d);
+          const info = computeDayInfo(d); if(!info) continue;
+          dayInfoMap[d]=info;
+          const wn=isoWeek(year,month,d);
+          if(!weekDaysMap[wn]) weekDaysMap[wn]=[];
+          weekDaysMap[wn].push(d);
         }
 
-        const newASVP = {}; // datekey → [{asvId, start, end, hoursDay, type, overQuota?}]
-        // weeklyHours[weekNum][asvId] = h cumulées
-        const weeklyHours = {};
-        const getWH = (aid,wn)=>(weeklyHours[wn]||{})[aid]||0;
-        const addWH = (aid,wn,h)=>{
-          if(!weeklyHours[wn]) weeklyHours[wn]={};
-          weeklyHours[wn][aid]=(weeklyHours[wn][aid]||0)+roundQ(h);
-        };
-        const remainQ = (aid,wn)=>Math.max(0, asvRules.hoursPerWeek - getWH(aid,wn));
-        // Déjà assigné ce jour ?
-        const isAssignedOn = (aid, key)=>
-          (newASVP[key]||[]).some(x=>x.asvId===aid);
+        // ── Collecte des affectations (qui travaille quel jour, quel type) ──
+        // assign[dateKey][asvId] = type
+        const assign = {};
+        const weeklyH = {};
+        const getWH = (aid,wn)=>(weeklyH[wn]||{})[aid]||0;
+        const addWH = (aid,wn,h)=>{ if(!weeklyH[wn]) weeklyH[wn]={}; weeklyH[wn][aid]=(weeklyH[wn][aid]||0)+roundQ(h); };
+        const rem = (aid,wn)=>Math.max(0, asvRules.hoursPerWeek-getWH(aid,wn));
+        const isOn = (aid,key)=>!!(assign[key]&&assign[key][aid]);
 
-        // ══════════════════════════════════════════════════════
-        // PHASE 1 — Couverture de base : 1 ASV par véto, journée complète
-        // ══════════════════════════════════════════════════════
-        Object.entries(weekDays).forEach(([wnStr, days])=>{
-          const wn = +wnStr;
+        // PHASE 1 — Base : 1 ASV/véto, journée complète
+        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
+          const wn=+wnStr;
           days.forEach(d=>{
-            const info = dayInfos[d];
-            const {key, vetCount, asvStart, asvEnd, hoursFullDay} = info;
-            if(!newASVP[key]) newASVP[key]=[];
-            const sorted = [...asvs].sort((a,b)=>getWH(a.id,wn)-getWH(b.id,wn));
+            const info=dayInfoMap[d];
+            const {key,vetCount,asvStart,asvEnd,hoursFullDay}=info;
+            if(!assign[key]) assign[key]={};
+            const sorted=[...asvs].sort((a,b)=>getWH(a.id,wn)-getWH(b.id,wn));
+            let cnt=0;
             for(const asv of sorted){
-              if(newASVP[key].length>=vetCount) break;
-              if(isUnavailAt(asv.id, key, asvStart, asvEnd)) continue;
-              const over = getWH(asv.id,wn)+hoursFullDay > asvRules.hoursPerWeek+0.5;
-              newASVP[key].push({asvId:asv.id, start:asvStart, end:asvEnd,
-                hoursDay:hoursFullDay, type:'full', overQuota: over&&getWH(asv.id,wn)>0});
-              addWH(asv.id, wn, hoursFullDay);
+              if(cnt>=vetCount) break;
+              if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
+              assign[key][asv.id]='full';
+              addWH(asv.id,wn,hoursFullDay);
+              cnt++;
             }
-            // Fallback quota dépassé : assigner quand même pour ne pas laisser vide
-            if(newASVP[key].length<vetCount){
+            // Fallback : forcer si pas assez (marquer overQuota)
+            if(cnt<vetCount){
               for(const asv of sorted){
-                if(newASVP[key].length>=vetCount) break;
-                if(isAssignedOn(asv.id,key)) continue;
-                if(isUnavailAt(asv.id, key, asvStart, asvEnd)) continue;
-                newASVP[key].push({asvId:asv.id, start:asvStart, end:asvEnd,
-                  hoursDay:hoursFullDay, type:'full', overQuota:true});
-                addWH(asv.id, wn, hoursFullDay);
+                if(cnt>=vetCount) break;
+                if(isOn(asv.id,key)) continue;
+                if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
+                assign[key][asv.id]='full_over';
+                addWH(asv.id,wn,hoursFullDay);
+                cnt++;
               }
             }
           });
         });
 
-        // ══════════════════════════════════════════════════════
-        // PHASE 2 — Renforcement matin (priorité)
-        //   Pour chaque ASV sous quota → ajouter des créneaux matin
-        //   sur les jours où elle n'est pas encore présente
-        // ══════════════════════════════════════════════════════
-        Object.entries(weekDays).forEach(([wnStr, days])=>{
-          const wn = +wnStr;
-          // Jours avec matin, triés par nombre de vétérinaires décroissant
-          const morningDays = days.filter(d=>dayInfos[d].hasMorning)
-            .sort((a,b)=>dayInfos[b].vetCount-dayInfos[a].vetCount);
-
+        // PHASE 2 — Renfort matin (priorité) pour atteindre le quota
+        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
+          const wn=+wnStr;
+          const matinDays=days.filter(d=>dayInfoMap[d].hasMatin)
+            .sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
           asvs.forEach(asv=>{
-            morningDays.forEach(d=>{
-              const rem = remainQ(asv.id, wn);
-              if(rem < 0.25) return; // quota atteint (tolérance 15min)
-              const info = dayInfos[d];
-              if(isAssignedOn(asv.id, info.key)) return;
-              if(isUnavailAt(asv.id, info.key, info.asvStart, info.morningEnd)) return;
-              const h = Math.min(rem, info.hoursMorning);
-              newASVP[info.key].push({asvId:asv.id,
-                start:info.asvStart, end:info.morningEnd,
-                hoursDay:roundQ(h), type:'renfort_matin'});
-              addWH(asv.id, wn, h);
+            matinDays.forEach(d=>{
+              if(rem(asv.id,wn)<0.25) return;
+              const info=dayInfoMap[d];
+              if(isOn(asv.id,info.key)) return;
+              if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd)) return;
+              const h=Math.min(rem(asv.id,wn),info.hoursMatin);
+              if(!assign[info.key]) assign[info.key]={};
+              assign[info.key][asv.id]='renfort_matin';
+              addWH(asv.id,wn,h);
             });
           });
         });
 
-        // ══════════════════════════════════════════════════════
-        // PHASE 3 — Renforcement journée complète
-        //   Pour les ASV encore sous quota après phase 2
-        // ══════════════════════════════════════════════════════
-        Object.entries(weekDays).forEach(([wnStr, days])=>{
-          const wn = +wnStr;
-          const allDays = [...days].sort((a,b)=>dayInfos[b].vetCount-dayInfos[a].vetCount);
+        // PHASE 3 — Renfort journée pour le quota restant
+        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
+          const wn=+wnStr;
+          const allDays=[...days].sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
           asvs.forEach(asv=>{
             allDays.forEach(d=>{
-              const rem = remainQ(asv.id, wn);
-              if(rem < 0.25) return;
-              const info = dayInfos[d];
-              if(isAssignedOn(asv.id, info.key)) return;
-              if(isUnavailAt(asv.id, info.key, info.asvStart, info.asvEnd)) return;
-              const h = Math.min(rem, info.hoursFullDay);
-              newASVP[info.key].push({asvId:asv.id,
-                start:info.asvStart, end:info.asvEnd,
-                hoursDay:roundQ(h), type:'renfort_jour'});
-              addWH(asv.id, wn, h);
+              if(rem(asv.id,wn)<0.25) return;
+              const info=dayInfoMap[d];
+              if(isOn(asv.id,info.key)) return;
+              if(isUnavailAt(asv.id,info.key,info.asvStart,info.asvEnd)) return;
+              const h=Math.min(rem(asv.id,wn),info.hoursFullDay);
+              if(!assign[info.key]) assign[info.key]={};
+              assign[info.key][asv.id]='renfort_jour';
+              addWH(asv.id,wn,h);
             });
           });
+        });
+
+        // ── Conversion affectations → segments horaires ─────────
+        const newASVP = {};
+        Object.entries(assign).forEach(([key, dayAssign])=>{
+          // Retrouver le jour
+          const d = parseInt(key.slice(8));
+          const info = dayInfoMap[d]; if(!info) return;
+
+          const fullIds=[], matinIds=[];
+          Object.entries(dayAssign).forEach(([aid,type])=>{
+            if(type==='renfort_matin') matinIds.push(aid);
+            else fullIds.push(aid);
+          });
+
+          const dayData = {};
+
+          // Renfort matin : segment [asvStart, morningEnd] sans pause
+          matinIds.forEach(aid=>{
+            dayData[aid]={segments:[{start:info.asvStart, end:info.morningEnd||info.asvEnd}], type:'renfort_matin'};
+          });
+
+          // Journée complète : pauses staggerées si hasMatin+hasAprem
+          if(fullIds.length>0){
+            if(info.fullDay){
+              const stag = computeStaggered(fullIds, info.asvStart, info.asvEnd, asvRules.lunchBreak);
+              fullIds.forEach(aid=>{
+                dayData[aid]={...stag[aid], type: dayAssign[aid]};
+              });
+            } else {
+              // Demi-journée : pas de pause
+              fullIds.forEach(aid=>{
+                dayData[aid]={segments:[{start:info.asvStart,end:info.asvEnd}], type: dayAssign[aid]};
+              });
+            }
+          }
+          newASVP[key]=dayData;
         });
 
         setAsvPlanning(prev=>{
           const next={...prev};
           Object.keys(next).filter(k=>k.startsWith(prefix)).forEach(k=>delete next[k]);
-          Object.assign(next, newASVP);
+          Object.assign(next,newASVP);
           return next;
         });
       },[year,month,numDays,planning,openDays,holidays,asvs,asvRules,asvUnavailRanges]);
@@ -1549,7 +1586,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               vets={vets} planning={planning} openDays={openDays}
               asvs={asvs} setAsvs={setAsvs}
               asvRules={asvRules} setAsvRules={setAsvRules}
-              asvPlanning={asvPlanning}
+              asvPlanning={asvPlanning} setAsvPlanning={setAsvPlanning}
               asvUnavailRanges={asvUnavailRanges} setAsvUnavailRanges={setAsvUnavailRanges}
               holidays={holidays}
               onGenerate={generateASVPlanning}
@@ -2238,35 +2275,40 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Planning ASV ────────────────────────────────────
-    function ASVTab({year,month,numDays,startCol,vets,planning,openDays,asvs,setAsvs,
-      asvRules,setAsvRules,asvPlanning,asvUnavailRanges,setAsvUnavailRanges,
-      holidays,onGenerate,isoWeek,weekParity}){
-      const [section,setSection]=useState('planning');
+    // Helpers partagés
+    const segH = segs => segs.reduce((s,g)=>s+(g.end-g.start),0);
+    const GANTT_S=7.5, GANTT_E=20.5, GANTT_R=GANTT_E-GANTT_S;
+    const TYPE_OPACITY={full:1,'full_over':1,renfort_matin:0.55,renfort_jour:0.75};
 
-      // ── Helpers affichage type ──────────────────────────────
-      const TYPE_META = {
-        full:         {label:'Journée', bg:'#fdf2f8', col:'#9d174d', border:'#fbcfe8', icon:'☀️🌙'},
-        renfort_matin:{label:'Renfort ☀️', bg:'#fffbeb', col:'#92400e', border:'#fde68a', icon:'☀️+'},
-        renfort_jour: {label:'Renfort +', bg:'#f0f9ff', col:'#0369a1', border:'#bae6fd', icon:'📋+'},
-      };
+    function ASVTab({year,month,numDays,startCol,vets,planning,openDays,
+      asvs,setAsvs,asvRules,setAsvRules,
+      asvPlanning,setAsvPlanning,
+      asvUnavailRanges,setAsvUnavailRanges,
+      holidays,onGenerate,isoWeek,weekParity}){
+
+      const [section,setSection]=useState('planning');
+      const [editKey,setEditKey]=useState(null); // dateKey du jour édité
+
+      const monthPfx=`${year}-${String(month+1).padStart(2,'0')}-`;
 
       // ── Stats hebdomadaires ─────────────────────────────────
-      const weeklyStats = useMemo(()=>{
-        const prefix=`${year}-${String(month+1).padStart(2,'0')}-`;
-        const stats={}; // {weekNum: {asvId: h}}
-        Object.entries(asvPlanning).filter(([k])=>k.startsWith(prefix)).forEach(([key,slots])=>{
-          const [y,m,d]=key.split('-').map(Number);
-          const wn=isoWeek(y,m-1,d);
-          slots.forEach(({asvId,hoursDay})=>{
-            if(!stats[wn]) stats[wn]={};
-            stats[wn][asvId]=(stats[wn][asvId]||0)+hoursDay;
+      const weeklyStats=useMemo(()=>{
+        const st={};
+        Object.entries(asvPlanning).filter(([k])=>k.startsWith(monthPfx))
+          .forEach(([key,dd])=>{
+            const [y,m,d]=key.split('-').map(Number);
+            const wn=isoWeek(y,m-1,d);
+            if(!st[wn]) st[wn]={};
+            Object.entries(dd).forEach(([aid,ad])=>{
+              st[wn][aid]=(st[wn][aid]||0)+segH(ad.segments);
+            });
           });
-        });
-        return stats;
-      },[asvPlanning,year,month,isoWeek]);
+        return st;
+      },[asvPlanning,monthPfx,isoWeek]);
 
-      const hasPlanning=Object.keys(asvPlanning).some(k=>k.startsWith(`${year}-${String(month+1).padStart(2,'0')}-`));
-      const hasVetPlanning=Object.keys(planning).some(k=>k.startsWith(`${year}-${String(month+1).padStart(2,'0')}-`));
+      const hasPlanning=Object.keys(asvPlanning).some(k=>k.startsWith(monthPfx));
+      const hasVetPlanning=Object.keys(planning).some(k=>k.startsWith(monthPfx));
+
       const weeks=useMemo(()=>{
         const cells=Array(startCol).fill(null);
         for(let d=1;d<=numDays;d++) cells.push(d);
@@ -2276,24 +2318,22 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         return w;
       },[startCol,numDays]);
 
-      // Indispos pour ce mois-là
-      const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}`;
-      const monthIndispos=asvUnavailRanges.filter(r=>
-        r.fromDate.startsWith(monthPrefix)||r.toDate.startsWith(monthPrefix)||
-        (r.fromDate<=monthPrefix+'-01' && r.toDate>=monthPrefix+'-28')
-      );
+      const sortedWeeks=Object.keys(weeklyStats).sort((a,b)=>+a-+b);
 
       return(
         <div style={{fontFamily:"'Inter',sans-serif"}}>
           <div style={{marginBottom:20}}>
-            <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:'#1f2937',marginBottom:4}}>Planning ASV</h2>
+            <h2 style={{fontFamily:"'Playfair Display',serif",fontSize:22,fontWeight:700,color:'#1f2937',marginBottom:4}}>
+              Planning ASV
+            </h2>
             <p style={{color:'#6b7280',fontSize:13}}>
-              Génération 3 phases · 1 ASV / véto (journée) → renfort matin → renfort journée pour atteindre {asvRules.hoursPerWeek}h/sem
+              Génération automatique · pauses déjeuner décalées · click sur un jour pour éditer manuellement
             </p>
           </div>
 
-          {/* Sous-navigation */}
-          <div style={{display:'flex',gap:4,background:'#fff',border:'1px solid #e2e8f0',borderRadius:12,padding:4,marginBottom:20,width:'fit-content'}}>
+          {/* Sous-nav */}
+          <div style={{display:'flex',gap:4,background:'#fff',border:'1px solid #e2e8f0',borderRadius:12,
+            padding:4,marginBottom:20,width:'fit-content'}}>
             {[['planning','📅 Calendrier'],['equipe','👩‍⚕️ Équipe ASV'],['regles','⚙️ Règles']].map(([s,l])=>(
               <button key={s} onClick={()=>setSection(s)}
                 style={{padding:'7px 16px',borderRadius:8,border:'none',cursor:'pointer',
@@ -2308,230 +2348,481 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           {section==='regles'&&<ASVRegles asvRules={asvRules} setAsvRules={setAsvRules}/>}
           {section==='equipe'&&<ASVEquipe asvs={asvs} setAsvs={setAsvs}/>}
 
-          {section==='planning'&&(
-            <>
-              {/* Actions + alertes */}
-              <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:16,flexWrap:'wrap'}}>
-                {!hasVetPlanning&&(
-                  <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,padding:'10px 16px',fontSize:13,color:'#92400e',width:'100%'}}>
-                    ⚠️ Aucun planning vétérinaire pour ce mois — générez d'abord depuis l'onglet 📅 Planning.
-                  </div>
-                )}
-                {hasVetPlanning&&<button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>}
-              </div>
-
-              {/* Panel indisponibilités ASV */}
-              <ASVIndispoPanel
-                asvs={asvs} year={year} month={month} numDays={numDays}
-                asvUnavailRanges={asvUnavailRanges} setAsvUnavailRanges={setAsvUnavailRanges}/>
-
-              {/* Stats hebdomadaires */}
-              {hasPlanning&&(
-                <div className="g-card" style={{marginBottom:16}}>
-                  <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:12,textTransform:'uppercase',letterSpacing:'.05em'}}>
-                    Heures par semaine — objectif {asvRules.hoursPerWeek}h
-                  </h3>
-                  <div style={{overflowX:'auto'}}>
-                    <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
-                      <thead>
-                        <tr style={{background:'#f8fafc'}}>
-                          <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>ASV</th>
-                          {Object.keys(weeklyStats).sort((a,b)=>+a-+b).map(wn=>(
-                            <th key={wn} style={{padding:'8px 12px',textAlign:'center',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>S{wn}</th>
-                          ))}
-                          <th style={{padding:'8px 12px',textAlign:'center',fontWeight:600,color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {asvs.map(a=>{
-                          const total=Object.values(weeklyStats).reduce((s,m)=>s+(m[a.id]||0),0);
-                          return(
-                            <tr key={a.id} style={{borderBottom:'1px solid #f1f5f9'}}>
-                              <td style={{padding:'8px 12px'}}>
-                                <div style={{display:'flex',alignItems:'center',gap:7}}>
-                                  <div style={{width:9,height:9,borderRadius:'50%',background:a.color,flexShrink:0}}/>
-                                  <span style={{fontWeight:500,color:'#1f2937'}}>{a.name}</span>
-                                </div>
-                              </td>
-                              {Object.keys(weeklyStats).sort((x,y)=>+x-+y).map(wn=>{
-                                const h=(weeklyStats[wn]||{})[a.id]||0;
-                                const pct=Math.min(100,h/asvRules.hoursPerWeek*100);
-                                const over=h>asvRules.hoursPerWeek+0.25;
-                                const ok=!over&&h>=asvRules.hoursPerWeek-0.25;
-                                const col=over?'#dc2626':ok?'#059669':h>0?'#d97706':'#9ca3af';
-                                return(
-                                  <td key={wn} style={{padding:'6px 12px',textAlign:'center'}}>
-                                    {h>0?(
-                                      <div>
-                                        <div style={{fontSize:12,fontWeight:600,color:col}}>
-                                          {h.toFixed(2).replace(/\.?0+$/,'')}h
-                                          {over&&' ⚠️'}{ok&&' ✓'}
-                                        </div>
-                                        <div style={{height:3,borderRadius:2,background:'#f1f5f9',marginTop:3,width:48,margin:'3px auto 0'}}>
-                                          <div style={{height:3,borderRadius:2,width:pct+'%',
-                                            background:over?'#ef4444':ok?'#10b981':'#f59e0b',transition:'width .3s'}}/>
-                                        </div>
-                                      </div>
-                                    ):<span style={{color:'#d1d5db'}}>—</span>}
-                                  </td>
-                                );
-                              })}
-                              <td style={{padding:'8px 12px',textAlign:'center',fontWeight:700,
-                                color:total>0?'#0d9488':'#9ca3af'}}>
-                                {total>0?total.toFixed(1)+'h':'—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  {/* Légende types */}
-                  <div style={{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}}>
-                    {Object.entries(TYPE_META).map(([k,m])=>(
-                      <span key={k} style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:10,
-                        background:m.bg,color:m.col,border:'1px solid '+m.border}}>
-                        {m.icon} {m.label}
-                      </span>
-                    ))}
-                    <span style={{fontSize:11,color:'#9ca3af',marginLeft:'auto'}}>
-                      Pause déjeuner {asvRules.lunchBreak}h · ±30 min par rapport aux vétérinaires
-                    </span>
-                  </div>
+          {section==='planning'&&(<>
+            {/* Actions */}
+            <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:16,flexWrap:'wrap'}}>
+              {!hasVetPlanning&&(
+                <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,
+                  padding:'10px 16px',fontSize:13,color:'#92400e',width:'100%'}}>
+                  ⚠️ Aucun planning vétérinaire pour ce mois — générez d'abord depuis l'onglet 📅 Planning.
                 </div>
               )}
-
-              {/* Grille calendrier */}
-              <div className="cal-grid">
-                <div className="cal-header-row">
-                  {JOURS.map((j,i)=><div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>)}
+              {hasVetPlanning&&(
+                <button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>
+              )}
+              {hasPlanning&&(
+                <div style={{fontSize:12,color:'#6b7280',alignSelf:'center'}}>
+                  💡 Cliquez sur un jour pour éditer manuellement les horaires
                 </div>
-                {weeks.map((week,wi)=>(
-                  <div key={wi} className="cal-week">
-                    {week.map((day,di)=>{
-                      if(!day) return <div key={di} className="cal-cell empty"/>;
-                      const key=dk(year,month,day);
-                      const dow=dowJS(year,month,day);
-                      const isHoliday=holidays&&holidays.has(key);
-                      const closed=!openDays[dow]||isHoliday;
-                      const today=new Date().toDateString()===new Date(year,month,day).toDateString();
-                      const we=isWE(dow);
-                      const slots=asvPlanning[key]||[];
-                      const wn=isoWeek(year,month,day);
-                      const wp=weekParity(year,month,day);
-                      // Grouper par type pour l'affichage horaire
-                      const fullSlots=slots.filter(s=>s.type==='full'||s.type==='renfort_jour');
-                      const matinSlots=slots.filter(s=>s.type==='renfort_matin');
-                      const indisposDay=asvUnavailRanges.filter(r=>r.fromDate<=key&&r.toDate>=key);
+              )}
+            </div>
 
-                      return(
-                        <div key={di} className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')}>
-                          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3}}>
-                            <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
-                              {day}
-                            </div>
-                            {!closed&&di===0&&(
-                              <span style={{fontSize:8,fontWeight:700,color:wp==='even'?'#1d4ed8':'#be185d',
-                                background:wp==='even'?'#dbeafe':'#fce7f3',borderRadius:4,padding:'1px 4px'}}>
-                                S{wn}
-                              </span>
-                            )}
+            {/* Indisponibilités */}
+            <ASVIndispoPanel asvs={asvs} year={year} month={month} numDays={numDays}
+              asvUnavailRanges={asvUnavailRanges} setAsvUnavailRanges={setAsvUnavailRanges}/>
+
+            {/* Stats hebdo */}
+            {hasPlanning&&(
+              <div className="g-card" style={{marginBottom:16}}>
+                <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:12,
+                  textTransform:'uppercase',letterSpacing:'.05em'}}>
+                  Heures par semaine — objectif {asvRules.hoursPerWeek}h
+                </h3>
+                <div style={{overflowX:'auto'}}>
+                  <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
+                    <thead>
+                      <tr style={{background:'#f8fafc'}}>
+                        <th style={{padding:'8px 12px',textAlign:'left',fontWeight:600,color:'#6b7280',
+                          borderBottom:'1px solid #e2e8f0',minWidth:90}}>ASV</th>
+                        {sortedWeeks.map(wn=>(
+                          <th key={wn} style={{padding:'8px 12px',textAlign:'center',fontWeight:600,
+                            color:'#6b7280',borderBottom:'1px solid #e2e8f0',minWidth:80}}>S{wn}</th>
+                        ))}
+                        <th style={{padding:'8px 12px',textAlign:'center',fontWeight:600,
+                          color:'#6b7280',borderBottom:'1px solid #e2e8f0'}}>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {asvs.map(a=>{
+                        const tot=Object.values(weeklyStats).reduce((s,m)=>s+(m[a.id]||0),0);
+                        return(
+                          <tr key={a.id} style={{borderBottom:'1px solid #f1f5f9'}}>
+                            <td style={{padding:'8px 12px'}}>
+                              <div style={{display:'flex',alignItems:'center',gap:7}}>
+                                <div style={{width:9,height:9,borderRadius:'50%',background:a.color,flexShrink:0}}/>
+                                <span style={{fontWeight:500,color:'#1f2937'}}>{a.name}</span>
+                              </div>
+                            </td>
+                            {sortedWeeks.map(wn=>{
+                              const h=(weeklyStats[wn]||{})[a.id]||0;
+                              const pct=Math.min(100,h/asvRules.hoursPerWeek*100);
+                              const over=h>asvRules.hoursPerWeek+0.25;
+                              const ok=!over&&h>=asvRules.hoursPerWeek-0.25;
+                              const col=over?'#dc2626':ok?'#059669':h>0?'#d97706':'#9ca3af';
+                              return(
+                                <td key={wn} style={{padding:'6px 12px',textAlign:'center'}}>
+                                  {h>0?(
+                                    <>
+                                      <div style={{fontSize:12,fontWeight:600,color:col}}>
+                                        {h.toFixed(2).replace(/\.?0+$/,'')}h
+                                        {over?' ⚠️':ok?' ✓':''}
+                                      </div>
+                                      <div style={{height:3,borderRadius:2,background:'#f1f5f9',
+                                        width:56,margin:'3px auto 0'}}>
+                                        <div style={{height:3,borderRadius:2,width:pct+'%',
+                                          background:over?'#ef4444':ok?'#10b981':'#f59e0b'}}/>
+                                      </div>
+                                    </>
+                                  ):<span style={{color:'#d1d5db'}}>—</span>}
+                                </td>
+                              );
+                            })}
+                            <td style={{padding:'8px 12px',textAlign:'center',fontWeight:700,
+                              color:tot>0?'#0d9488':'#9ca3af'}}>
+                              {tot>0?tot.toFixed(1)+'h':'—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{fontSize:11,color:'#9ca3af',marginTop:8}}>
+                  Pauses décalées — pas de chevauchement → couverture non-stop · +30 min par rapport aux vétérinaires
+                </p>
+              </div>
+            )}
+
+            {/* Calendrier Gantt */}
+            <div className="cal-grid">
+              <div className="cal-header-row">
+                {JOURS.map((j,i)=>(
+                  <div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>
+                ))}
+              </div>
+              {weeks.map((week,wi)=>(
+                <div key={wi} className="cal-week">
+                  {week.map((day,di)=>{
+                    if(!day) return <div key={di} className="cal-cell empty"/>;
+                    const key=dk(year,month,day);
+                    const dow=dowJS(year,month,day);
+                    const isHoliday=holidays&&holidays.has(key);
+                    const closed=!openDays[dow]||isHoliday;
+                    const today=new Date().toDateString()===new Date(year,month,day).toDateString();
+                    const we=isWE(dow);
+                    const dayData=asvPlanning[key]||{};
+                    const assignedIds=Object.keys(dayData);
+                    const wn=isoWeek(year,month,day);
+                    const wp=weekParity(year,month,day);
+                    const hasDayData=assignedIds.length>0;
+                    const indispos=asvUnavailRanges.filter(r=>r.fromDate<=key&&r.toDate>=key);
+
+                    return(
+                      <div key={di}
+                        onClick={()=>!closed&&hasDayData&&setEditKey(key)}
+                        className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')
+                          +(hasDayData&&!closed?' asv-has-data':'')}>
+                        {/* En-tête jour */}
+                        <div style={{display:'flex',justifyContent:'space-between',
+                          alignItems:'center',marginBottom:3}}>
+                          <div className={'cal-day-num'+(today?' today':closed?' closed-n':we?' closed-n':'')}>
+                            {day}
                           </div>
-
-                          {closed?(
-                            <div style={{fontSize:9,color:isHoliday?'#b45309':'#d1d5db',
-                              textTransform:'uppercase',letterSpacing:'.05em',fontWeight:isHoliday?600:400}}>
-                              {isHoliday?'Férié':'Fermé'}
-                            </div>
-                          ):slots.length>0?(
-                            <div style={{display:'flex',flexDirection:'column',gap:2}}>
-                              {/* Plages journée complète / renfort jour */}
-                              {fullSlots.length>0&&(
-                                <div style={{background:'#fdf2f8',borderRadius:4,padding:'2px 5px',marginBottom:1}}>
-                                  <div style={{fontSize:7,fontWeight:700,color:'#9d174d',letterSpacing:'.04em',marginBottom:1}}>
-                                    ☀️🌙 {formatHTime(fullSlots[0].start)}–{formatHTime(fullSlots[0].end)}
-                                  </div>
-                                  {fullSlots.map((s,si)=>{
-                                    const a=asvs.find(x=>x.id===s.asvId);
-                                    if(!a) return null;
-                                    const tm=TYPE_META[s.type]||TYPE_META.full;
-                                    return(
-                                      <div key={si} style={{display:'flex',alignItems:'center',gap:3,
-                                        borderRadius:3,padding:'1px 3px',marginBottom:1,
-                                        background:s.overQuota?'#fef2f2':a.color+'15',
-                                        border:'1px solid '+(s.overQuota?'#fecaca':a.color+'33')}}>
-                                        <div style={{width:4,height:4,borderRadius:'50%',background:a.color,flexShrink:0}}/>
-                                        <span style={{fontSize:8,fontWeight:600,color:s.overQuota?'#dc2626':a.color}}>
-                                          {a.name}{s.type==='renfort_jour'?' +':''}{s.overQuota?' ⚠':''}
-                                        </span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                              {/* Renfort matin */}
-                              {matinSlots.length>0&&(
-                                <div style={{background:'#fffbeb',borderRadius:4,padding:'2px 5px',marginBottom:1,
-                                  border:'1px solid #fde68a'}}>
-                                  <div style={{fontSize:7,fontWeight:700,color:'#92400e',marginBottom:1}}>
-                                    ☀️+ {formatHTime(matinSlots[0].start)}–{formatHTime(matinSlots[0].end)}
-                                  </div>
-                                  {matinSlots.map((s,si)=>{
-                                    const a=asvs.find(x=>x.id===s.asvId);
-                                    if(!a) return null;
-                                    return(
-                                      <div key={si} style={{display:'flex',alignItems:'center',gap:3,
-                                        borderRadius:3,padding:'1px 3px',marginBottom:1,
-                                        background:a.color+'15',border:'1px solid '+a.color+'33'}}>
-                                        <div style={{width:4,height:4,borderRadius:'50%',background:a.color,flexShrink:0}}/>
-                                        <span style={{fontSize:8,fontWeight:600,color:a.color}}>{a.name} ☀️+</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                              {/* Indispos */}
-                              {indisposDay.map(r=>{
-                                const a=asvs.find(x=>x.id===r.asvId);
-                                if(!a) return null;
-                                return(
-                                  <div key={r.id} style={{fontSize:7,color:'#9ca3af',
-                                    background:'#f1f5f9',borderRadius:3,padding:'1px 4px',
-                                    display:'flex',gap:2,alignItems:'center'}}>
-                                    <span>🚫</span>
-                                    <span style={{color:a.color,fontWeight:600}}>{a.name}</span>
-                                    {r.fromTime>0||r.toTime<24?
-                                      <span>{formatHTime(r.fromTime===0&&key===r.fromDate?r.fromTime:0)}</span>:null}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ):hasVetPlanning&&!we&&planning[key]?(
-                            <div style={{fontSize:9,color:'#9ca3af',fontStyle:'italic'}}>Non généré</div>
-                          ):null}
+                          {!closed&&di===0&&(
+                            <span style={{fontSize:8,fontWeight:700,
+                              color:wp==='even'?'#1d4ed8':'#be185d',
+                              background:wp==='even'?'#dbeafe':'#fce7f3',
+                              borderRadius:4,padding:'1px 4px'}}>
+                              S{wn}
+                            </span>
+                          )}
                         </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
 
-              {/* Légende */}
-              <div className="legend" style={{marginTop:12}}>
-                {asvs.map(a=>(
-                  <div key={a.id} className="legend-item">
-                    <div className="legend-dot" style={{background:a.color}}/>
-                    {a.name}
-                  </div>
-                ))}
-                <div style={{display:'flex',gap:8,marginLeft:'auto',flexWrap:'wrap',alignItems:'center'}}>
-                  <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:10,background:'#fdf2f8',color:'#9d174d',border:'1px solid #fbcfe8'}}>☀️🌙 Journée</span>
-                  <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:10,background:'#fffbeb',color:'#92400e',border:'1px solid #fde68a'}}>☀️+ Renfort matin</span>
-                  <span style={{fontSize:10,fontWeight:600,padding:'2px 7px',borderRadius:10,background:'#f0f9ff',color:'#0369a1',border:'1px solid #bae6fd'}}>📋+ Renfort journée</span>
+                        {closed?(
+                          <div style={{fontSize:9,color:isHoliday?'#b45309':'#d1d5db',
+                            textTransform:'uppercase',letterSpacing:'.05em',
+                            fontWeight:isHoliday?600:400}}>
+                            {isHoliday?'Férié':'Fermé'}
+                          </div>
+                        ):hasDayData?(
+                          <div>
+                            {/* Mini Gantt — une ligne par ASV */}
+                            {asvs.map(a=>{
+                              const ad=dayData[a.id]; if(!ad) return null;
+                              const h=segH(ad.segments);
+                              return(
+                                <div key={a.id} style={{marginBottom:2}}>
+                                  <div className="asv-gantt-row">
+                                    {ad.segments.map((seg,si)=>{
+                                      const left=Math.max(0,(seg.start-GANTT_S)/GANTT_R*100);
+                                      const w=Math.max(0.5,(seg.end-seg.start)/GANTT_R*100);
+                                      return(
+                                        <div key={si} className="asv-gantt-seg" style={{
+                                          left:left+'%',width:w+'%',
+                                          background:a.color,
+                                          opacity:TYPE_OPACITY[ad.type]||0.9}}/>
+                                      );
+                                    })}
+                                  </div>
+                                  <div style={{fontSize:7,color:a.color,fontWeight:700,
+                                    lineHeight:1,marginBottom:1}}>
+                                    {a.name.slice(0,3)} {h.toFixed(2).replace(/\.?0+$/,'')}h
+                                    {ad.type==='renfort_matin'&&<span style={{opacity:.7}}> ☀</span>}
+                                    {(ad.type==='renfort_jour'||ad.type==='renfort_matin')&&
+                                      <span style={{opacity:.6}}> +</span>}
+                                    {ad.type==='full_over'&&<span style={{color:'#dc2626'}}> !</span>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                            {/* Indispos */}
+                            {indispos.map(r=>{
+                              const a=asvs.find(x=>x.id===r.asvId); if(!a) return null;
+                              return(
+                                <div key={r.id} style={{fontSize:7,color:'#9ca3af',
+                                  background:'#f1f5f9',borderRadius:3,padding:'1px 4px',
+                                  display:'flex',gap:2,alignItems:'center',marginBottom:1}}>
+                                  <span>🚫</span>
+                                  <span style={{color:a.color,fontWeight:600}}>{a.name.slice(0,3)}</span>
+                                </div>
+                              );
+                            })}
+                            <div style={{fontSize:7,color:'#9ca3af',textAlign:'right',
+                              marginTop:2}}>✏️ éditer</div>
+                          </div>
+                        ):hasVetPlanning&&!we&&planning[key]?(
+                          <div style={{fontSize:9,color:'#9ca3af',fontStyle:'italic'}}>Non généré</div>
+                        ):null}
+                      </div>
+                    );
+                  })}
                 </div>
+              ))}
+            </div>
+
+            {/* Légende */}
+            <div className="legend" style={{marginTop:12}}>
+              {asvs.map(a=>(
+                <div key={a.id} className="legend-item">
+                  <div className="legend-dot" style={{background:a.color}}/>
+                  {a.name}
+                </div>
+              ))}
+              <div style={{display:'flex',gap:8,marginLeft:'auto',flexWrap:'wrap',alignItems:'center'}}>
+                <span style={{fontSize:10,color:'#6b7280'}}>Opacité : pleine = base · réduite = renfort</span>
               </div>
-            </>
+            </div>
+          </>)}
+
+          {/* Modal éditeur de jour */}
+          {editKey&&(
+            <ASVDayModal
+              dateKey={editKey}
+              asvs={asvs}
+              asvPlanning={asvPlanning}
+              setAsvPlanning={setAsvPlanning}
+              asvRules={asvRules}
+              year={year} month={month}
+              onClose={()=>setEditKey(null)}/>
           )}
+        </div>
+      );
+    }
+
+    // ─── Modal éditeur de jour (grille 15min) ──────────────────
+    function ASVDayModal({dateKey,asvs,asvPlanning,setAsvPlanning,asvRules,year,month,onClose}){
+      const SLOT_H = 0.25; // 15 min
+      const DISP_S = 7.0, DISP_E = 21.0;
+      const slots = [];
+      for(let h=DISP_S; h<DISP_E; h=Math.round((h+SLOT_H)*100)/100) slots.push(h);
+      const nSlots = slots.length;
+
+      // Convertit segments → Set d'indices de slots actifs
+      const segsToSet = (segs) => {
+        const s = new Set();
+        segs.forEach(seg=>{
+          slots.forEach((h,i)=>{ if(h>=seg.start&&h<seg.end) s.add(i); });
+        });
+        return s;
+      };
+      // Convertit Set → segments
+      const setToSegs = (set) => {
+        const sorted=[...set].sort((a,b)=>a-b);
+        if(!sorted.length) return [];
+        const segs=[]; let sS=slots[sorted[0]], sE=sS+SLOT_H;
+        for(let k=1;k<sorted.length;k++){
+          if(sorted[k]===sorted[k-1]+1) sE=slots[sorted[k]]+SLOT_H;
+          else{ segs.push({start:sS,end:Math.round(sE*100)/100}); sS=slots[sorted[k]]; sE=sS+SLOT_H; }
+        }
+        segs.push({start:sS,end:Math.round(sE*100)/100});
+        return segs;
+      };
+
+      const fmtH = h => {
+        const hh=Math.floor(h), mm=Math.round((h-hh)*60);
+        return `${hh}h${String(mm).padStart(2,'0')}`;
+      };
+
+      // Initialiser la matrice depuis le planning existant
+      const initMatrix = () => {
+        const m={};
+        asvs.forEach(a=>{
+          const ad=(asvPlanning[dateKey]||{})[a.id];
+          m[a.id] = ad ? segsToSet(ad.segments) : new Set();
+        });
+        return m;
+      };
+
+      const [matrix,setMatrix]=useState(initMatrix);
+      const [drag,setDrag]=useState(null); // {asvId, targetOn}
+
+      // Listener mouseup global pour arrêter le drag
+      useEffect(()=>{
+        const up=()=>setDrag(null);
+        window.addEventListener('mouseup',up);
+        return ()=>window.removeEventListener('mouseup',up);
+      },[]);
+
+      const setCells=(asvId,slotIdx,on)=>{
+        setMatrix(prev=>{
+          const next={...prev,[asvId]:new Set(prev[asvId])};
+          if(on) next[asvId].add(slotIdx);
+          else   next[asvId].delete(slotIdx);
+          return next;
+        });
+      };
+
+      // Heures par ASV depuis la matrice courante
+      const hoursMap = {};
+      asvs.forEach(a=>{ hoursMap[a.id]=matrix[a.id].size*SLOT_H; });
+
+      // Couverture par slot
+      const coverage = slots.map((_,i)=>asvs.filter(a=>matrix[a.id].has(i)).length);
+      const minCov = Math.min(...coverage.filter((_,i)=>{
+        // Ignorer les slots en dehors de la plage de travail réelle
+        const h=slots[i];
+        return asvs.some(a=>{
+          const ad=(asvPlanning[dateKey]||{})[a.id];
+          return ad && ad.segments.some(s=>h>=s.start-0.5&&h<s.end+0.5);
+        });
+      }), Infinity);
+
+      const save=()=>{
+        const newDD={...((asvPlanning[dateKey])||{})};
+        asvs.forEach(a=>{
+          const segs=setToSegs(matrix[a.id]);
+          if(segs.length>0){
+            newDD[a.id]={segments:segs, type:(asvPlanning[dateKey]||{})[a.id]?.type||'full'};
+          } else {
+            delete newDD[a.id];
+          }
+        });
+        setAsvPlanning(prev=>({...prev,[dateKey]:newDD}));
+        onClose();
+      };
+
+      const [d2,mo2]=dateKey.split('-').map(Number);
+      const dayLabel=`${JOURS[(new Date(d2,mo2-1,+dateKey.slice(8)).getDay()+6)%7]} ${+dateKey.slice(8)} ${MOIS[mo2-1]} ${d2}`;
+
+      // Slot d'affichage partiel — afficher le label seulement aux heures et demies
+      const rowClass=(h)=>{
+        const hh=Math.floor(h), m=Math.round((h-hh)*60);
+        if(m===0) return 'hr';
+        if(m===30) return 'hh';
+        return '';
+      };
+      const timeLabel=(h)=>{
+        const hh=Math.floor(h), m=Math.round((h-hh)*60);
+        if(m===0) return fmtH(h);
+        if(m===30) return '·';
+        return '';
+      };
+
+      return(
+        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}
+          onMouseUp={()=>setDrag(null)}>
+          <div className="asv-modal-box">
+            {/* Header */}
+            <div className="modal-head" style={{display:'flex',justifyContent:'space-between',
+              alignItems:'center',gap:12}}>
+              <div>
+                <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,
+                  color:'#1f2937',margin:0}}>
+                  Horaires ASV — {dayLabel}
+                </h3>
+                <p style={{fontSize:12,color:'#6b7280',margin:'4px 0 0'}}>
+                  Click pour activer/désactiver · Drag pour remplir en continu · 1 case = 15 min
+                </p>
+              </div>
+              <div style={{display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+                <button onClick={save} className="btn-teal" style={{fontSize:13}}>
+                  ✓ Enregistrer
+                </button>
+                <button onClick={onClose} className="btn-ghost" style={{fontSize:20,padding:'2px 8px'}}>
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Totaux ASV */}
+            <div style={{display:'flex',gap:8,padding:'10px 24px',borderBottom:'1px solid #f1f5f9',
+              flexWrap:'wrap'}}>
+              {asvs.map(a=>{
+                const h=hoursMap[a.id];
+                const ok=h>=asvRules.hoursPerWeek-0.25&&h<=asvRules.hoursPerWeek+0.25;
+                const over=h>asvRules.hoursPerWeek+0.25;
+                return(
+                  <div key={a.id} style={{display:'flex',alignItems:'center',gap:6,
+                    padding:'4px 10px',borderRadius:20,
+                    background:a.color+'15',border:'1.5px solid '+a.color+'44'}}>
+                    <div style={{width:8,height:8,borderRadius:'50%',background:a.color}}/>
+                    <span style={{fontSize:12,fontWeight:700,color:a.color}}>{a.name}</span>
+                    <span style={{fontSize:12,fontWeight:600,
+                      color:over?'#dc2626':ok?'#059669':'#6b7280'}}>
+                      {h.toFixed(2).replace(/\.?0+$/,'')}h
+                      {over?' ⚠️':ok?' ✓':''}
+                    </span>
+                  </div>
+                );
+              })}
+              {minCov===0&&(
+                <div style={{fontSize:12,color:'#dc2626',fontWeight:600,
+                  background:'#fef2f2',borderRadius:20,padding:'4px 12px',
+                  border:'1px solid #fecaca'}}>
+                  ⚠ Créneau(x) sans couverture
+                </div>
+              )}
+            </div>
+
+            {/* Grille */}
+            <div className="asv-grid-wrap">
+              <table className="asv-grid-tbl">
+                <thead>
+                  <tr>
+                    <th className="asv-th-time">Heure</th>
+                    {asvs.map(a=>(
+                      <th key={a.id} style={{
+                        background:a.color+'18',
+                        color:a.color,
+                        borderLeft:'2px solid '+a.color+'44',
+                        minWidth:70}}>
+                        {a.name}
+                        <div style={{fontSize:9,fontWeight:400,color:a.color+'cc',marginTop:1}}>
+                          {hoursMap[a.id].toFixed(2).replace(/\.?0+$/,'')}h
+                        </div>
+                      </th>
+                    ))}
+                    <th className="asv-th-cov" title="Couverture">👥</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {slots.map((h,i)=>{
+                    const rc=rowClass(h);
+                    const cov=coverage[i];
+                    return(
+                      <tr key={i} className={`asv-grid-row${rc?' '+rc:''}`}>
+                        <td className={`asv-time-lbl${rc?' '+rc:''}`}>{timeLabel(h)}</td>
+                        {asvs.map(a=>{
+                          const on=matrix[a.id].has(i);
+                          return(
+                            <td key={a.id}
+                              className="asv-grid-cell"
+                              style={{
+                                background:on?a.color:'transparent',
+                                borderLeft:'1px solid #f1f5f9',
+                                opacity:on?0.88:1,
+                              }}
+                              onMouseDown={e=>{
+                                e.preventDefault();
+                                const target=!on;
+                                setDrag({asvId:a.id,targetOn:target});
+                                setCells(a.id,i,target);
+                              }}
+                              onMouseEnter={()=>{
+                                if(drag&&drag.asvId===a.id) setCells(a.id,i,drag.targetOn);
+                              }}
+                            />
+                          );
+                        })}
+                        <td className="asv-cov-cell" style={{
+                          background:cov===0?'#fef2f2':cov>=2?'#f0fdf4':'transparent',
+                          color:cov===0?'#ef4444':cov>=2?'#059669':'#9ca3af',
+                          fontWeight:600}}>
+                          {cov||'—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer */}
+            <div style={{padding:'12px 24px',borderTop:'1px solid #f1f5f9',display:'flex',
+              justifyContent:'space-between',alignItems:'center',gap:12}}>
+              <div style={{fontSize:11,color:'#9ca3af'}}>
+                Colonne 👥 : nbre d'ASV présentes par quart d'heure · rouge = trou de couverture
+              </div>
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>setMatrix(initMatrix())} className="btn-ghost"
+                  style={{fontSize:12,padding:'6px 12px'}}>
+                  ↺ Réinitialiser
+                </button>
+                <button onClick={onClose} className="btn-ghost">Annuler</button>
+                <button onClick={save} className="btn-teal">✓ Enregistrer</button>
+              </div>
+            </div>
+          </div>
         </div>
       );
     }
