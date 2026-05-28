@@ -1162,18 +1162,19 @@ const generateAstreintes = useCallback(()=>{
 
       // ── Génération Planning ASV ────────────────────────────────
       const generateASVPlanning = useCallback(()=>{
-        const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
-        const roundQ = h => Math.round(h*4)/4;
-        const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
+        try {
+          const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+          const roundQ = h => Math.round(h*4)/4;
+          const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
 
-        // ── Indisponibilité ASV sur un créneau ──────────────────
-        const isUnavailAt = (asvId, dateKey, startH, endH) =>
-          asvUnavailRanges.some(r => {
-            if(r.asvId !== asvId || dateKey < r.fromDate || dateKey > r.toDate) return false;
-            const rS = dateKey===r.fromDate ? r.fromTime : 0;
-            const rE = dateKey===r.toDate   ? r.toTime   : 24;
-            return overlaps(startH, endH, rS, rE);
-          });
+          // ── Indisponibilité ASV sur un créneau ──────────────────
+          const isUnavailAt = (asvId, dateKey, startH, endH) =>
+            asvUnavailRanges.some(r => {
+              if(r.asvId !== asvId || dateKey < r.fromDate || dateKey > r.toDate) return false;
+              const rS = dateKey===r.fromDate ? r.fromTime : 0;
+              const rE = dateKey===r.toDate   ? r.toTime   : 24;
+              return overlaps(startH, endH, rS, rE);
+            });
 
         // ── Horaires staggerés pour N ASVs journée complète ─────
         // S=debut ASV, E=fin ASV, lb=pause déj.
@@ -1365,6 +1366,9 @@ const generateAstreintes = useCallback(()=>{
           Object.assign(next,newASVP);
           return next;
         });
+      } catch(err) {
+        console.error('Erreur génération planning ASV', err);
+      }
       },[year,month,numDays,planning,openDays,holidays,asvs,asvRules,asvUnavailRanges]);
 
 const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
@@ -2351,19 +2355,20 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           {section==='planning'&&(<>
             {/* Actions */}
             <div style={{display:'flex',gap:10,alignItems:'flex-start',marginBottom:16,flexWrap:'wrap'}}>
-              {!hasVetPlanning&&(
+              {!hasVetPlanning ? (
                 <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,
-                  padding:'10px 16px',fontSize:13,color:'#92400e',width:'100%'}}>
-                  ⚠️ Aucun planning vétérinaire pour ce mois — générez d'abord depuis l'onglet 📅 Planning.
+                  padding:'16px 18px',fontSize:14,color:'#92400e',width:'100%',lineHeight:1.6}}>
+                  ⚠️ Aucun planning vétérinaire pour ce mois. Générez d'abord un planning depuis l'onglet <strong>📅 Planning</strong> pour activer le planning ASV.
                 </div>
-              )}
-              {hasVetPlanning&&(
-                <button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>
-              )}
-              {hasPlanning&&(
-                <div style={{fontSize:12,color:'#6b7280',alignSelf:'center'}}>
-                  💡 Cliquez sur un jour pour éditer manuellement les horaires
-                </div>
+              ) : (
+                <>
+                  <button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>
+                  {hasPlanning&&(
+                    <div style={{fontSize:12,color:'#6b7280',alignSelf:'center'}}>
+                      💡 Cliquez sur un jour pour éditer manuellement les horaires
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -2371,7 +2376,14 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             <ASVIndispoPanel asvs={asvs} year={year} month={month} numDays={numDays}
               asvUnavailRanges={asvUnavailRanges} setAsvUnavailRanges={setAsvUnavailRanges}/>
 
-            {/* Stats hebdo */}
+            {!hasPlanning && hasVetPlanning && (
+              <div className="g-card" style={{marginBottom:16}}>
+                <p style={{fontSize:13,color:'#6b7280',margin:0}}>
+                  Le planning ASV n’a pas encore été généré pour ce mois. Cliquez sur « Générer planning ASV » pour afficher le calendrier.
+                </p>
+              </div>
+            )}
+
             {hasPlanning&&(
               <div className="g-card" style={{marginBottom:16}}>
                 <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:12,
@@ -2443,12 +2455,14 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               </div>
             )}
 
-            {/* Calendrier Gantt */}
-            <div className="cal-grid">
-              <div className="cal-header-row">
-                {JOURS.map((j,i)=>(
-                  <div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>
-                ))}
+            {hasPlanning ? (
+              <>
+                {/* Calendrier Gantt */}
+                <div className="cal-grid">
+                  <div className="cal-header-row">
+                    {JOURS.map((j,i)=>(
+                      <div key={j} className={'cal-header-cell'+(i>=5?' we':'')}>{j}</div>
+                    ))}
               </div>
               {weeks.map((week,wi)=>(
                 <div key={wi} className="cal-week">
@@ -2562,7 +2576,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 <span style={{fontSize:10,color:'#6b7280'}}>Opacité : pleine = base · réduite = renfort</span>
               </div>
             </div>
-          </>)}
+          </>) : null}
 
           {/* Modal éditeur de jour */}
           {editKey&&(
