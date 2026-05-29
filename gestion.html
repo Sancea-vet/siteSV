@@ -1188,6 +1188,8 @@ const generateAstreintes = useCallback(()=>{
         const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
         const Q = h => Math.round(h*4)/4;   // arrondi 15min
         const eps = 0.24;                    // tolérance 15min-1 pour comparaisons
+        const MAX_EARLY_ASVS = 2;           // max 2 ASV de 8h00 à 8h30
+        const MAX_DAY_HOURS = 8;            // jour ASV limité à 8h max
 
         // ── Chevauchement ───────────────────────────────────────
         const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
@@ -1217,6 +1219,7 @@ const generateAstreintes = useCallback(()=>{
 
           asvIds.forEach((aid, i)=>{
             const targetH = hOverride[aid] ?? Q((E-S)-lb);
+            const start = (S===8 && i >= MAX_EARLY_ASVS) ? Q(S + 0.5) : S;
             let ls = Q(firstLS + i*lb);
             let le = Q(ls + lb);
             // Reclampe si déborde
@@ -1227,23 +1230,21 @@ const generateAstreintes = useCallback(()=>{
             // (l'ASV part après avoir complété son quota)
             const fullH = Q((E-S)-lb);
             if(targetH < fullH - eps){
-              // Shift partiel : [S, S+targetH] si targetH ≤ durée matin
-              // ou matin complet + partie aprem
-              const morningH = Q(ls - S);
+              const morningH = Q(ls - start);
               if(targetH <= morningH + eps){
                 // Seulement matin, part avant déjeuner
-                res[aid]={segments:[{start:S, end:Q(S+targetH)}]};
+                res[aid]={segments:[{start:start, end:Q(start+targetH)}]};
               } else {
                 // Matin complet + début aprem (sans toute la pause)
                 const apremH = Q(targetH - morningH);
-                res[aid]={segments:[{start:S,end:ls},{start:le,end:Q(le+apremH)}]};
+                res[aid]={segments:[{start:start,end:ls},{start:le,end:Q(le+apremH)}]};
               }
             } else {
               // Journée complète
               const segs=[];
-              if(ls>S) segs.push({start:S,end:ls});
+              if(ls>start) segs.push({start:start,end:ls});
               if(le<E) segs.push({start:le,end:E});
-              if(!segs.length) segs.push({start:S,end:E});
+              if(!segs.length) segs.push({start:start,end:E});
               res[aid]={segments:segs};
             }
           });
@@ -1274,7 +1275,8 @@ const generateAstreintes = useCallback(()=>{
           const hasMatin=mE.length>0, hasAprem=aS.length>0;
           const morningEnd=hasMatin?Q(Math.max(...mE)+0.5):null;
           const fullDay=hasMatin&&hasAprem;
-          const hoursFullDay=Q(fullDay?(asvEnd-asvStart)-asvRules.lunchBreak:(asvEnd-asvStart));
+          const rawFullHours = fullDay?(asvEnd-asvStart)-asvRules.lunchBreak:(asvEnd-asvStart);
+          const hoursFullDay=Q(Math.min(rawFullHours, MAX_DAY_HOURS));
           const hoursMatin=hasMatin?Q((morningEnd||asvEnd)-asvStart):0;
           return {key,vetCount:vetSet.size,asvStart,asvEnd,morningEnd,
                   hasMatin,hasAprem,fullDay,hoursFullDay,hoursMatin};
@@ -1411,16 +1413,6 @@ const generateAstreintes = useCallback(()=>{
 
           const dayData={};
 
-          // Renfort matin : segment [asvStart, asvStart+hDay]
-          matinIds.forEach(aid=>{
-            const hDay=dayAssign[aid].hDay;
-            const end=Q(info.asvStart+hDay);
-            dayData[aid]={
-              segments:[{start:info.asvStart, end:Math.min(end, info.morningEnd||info.asvEnd)}],
-              type:'renfort_matin'
-            };
-          });
-
           // Journée (complète ou partielle) : pauses staggerées
           if(fullIds.length>0){
             if(info.fullDay){
@@ -1430,13 +1422,29 @@ const generateAstreintes = useCallback(()=>{
               });
             } else {
               // Demi-journée (pas de pause)
+              let earlyStarts=0;
               fullIds.forEach(aid=>{
                 const hDay=dayAssign[aid].hDay;
-                const end=Q(Math.min(info.asvStart+hDay, info.asvEnd));
-                dayData[aid]={segments:[{start:info.asvStart,end}],type:dayAssign[aid].type};
+                const start = (info.asvStart===8 && earlyStarts >= MAX_EARLY_ASVS) ? Q(info.asvStart + 0.5) : info.asvStart;
+                if(start===info.asvStart) earlyStarts++;
+                const end=Q(Math.min(start+hDay, info.asvEnd));
+                dayData[aid]={segments:[{start,end}],type:dayAssign[aid].type};
               });
             }
           }
+
+          // Renfort matin : segment [asvStart, asvStart+hDay]
+          let earlyStarts = Object.values(dayData).filter(d=>d.segments[0]?.start===info.asvStart).length;
+          matinIds.forEach(aid=>{
+            const hDay=dayAssign[aid].hDay;
+            const start = (info.asvStart===8 && earlyStarts >= MAX_EARLY_ASVS) ? Q(info.asvStart + 0.5) : info.asvStart;
+            if(start===info.asvStart) earlyStarts++;
+            const end=Q(start+hDay);
+            dayData[aid]={
+              segments:[{start, end:Math.min(end, info.morningEnd||info.asvEnd)}],
+              type:'renfort_matin'
+            };
+          });
           newASVP[key]=dayData;
         });
 
@@ -1586,6 +1594,68 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         URL.revokeObjectURL(url);
       },[planning,vets,month,year]);
 
+      const exportCSV = useCallback(()=>{
+        const monthPrefix = `${year}-${String(month+1).padStart(2,'0')}-`;
+        const escapeCell = value => {
+          const s = value == null ? '' : String(value);
+          if(/;|\n|\r|"/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+          return s;
+        };
+        const rows = [];
+        rows.push(['Type','Date','Jour','Nom','Créneau','Horaire','Début','Fin','Durée','Segment','Remarque']);
+        const addRow = cells => rows.push(cells.map(escapeCell));
+
+        const getDayLabel = (dateKey) => {
+          const [y,m,d] = dateKey.split('-').map(Number);
+          const dow = new Date(y, m-1, d).getDay();
+          return JS_FULL[dow];
+        };
+
+        Object.keys(planning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(key=>{
+          const dp = planning[key];
+          if(!dp) return;
+          ['matin','aprem'].forEach(slot=>{
+            toSlotArr(dp[slot]).forEach(subSlot=>{
+              if(!subSlot||!subSlot.vets||!subSlot.vets.length) return;
+              const names = subSlot.vets.map(id=>{
+                const v=vets.find(v=>v.id===id); return v? v.name : id;
+              }).join(', ');
+              const horaire = HORAIRES[subSlot.horaire];
+              addRow(['Vétos', key, getDayLabel(key), names, slot, subSlot.horaire, horaire?.start||'', horaire?.end||'', '', '', '']);
+            });
+          });
+        });
+
+        if(Object.keys(asvPlanning).some(k=>k.startsWith(monthPrefix))){
+          rows.push([]);
+          rows.push(['Type','Date','Jour','Nom','Créneau','Horaire','Début','Fin','Durée','Segment','Remarque']);
+          Object.keys(asvPlanning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(key=>{
+            const dayData = asvPlanning[key];
+            if(!dayData || Array.isArray(dayData)) return;
+            const [y,m,d] = key.split('-').map(Number);
+            const dayName = JS_FULL[new Date(y,m-1,d).getDay()];
+            Object.entries(dayData).forEach(([aid,ad])=>{
+              if(!ad?.segments?.length) return;
+              const asv = asvs.find(a=>a.id===aid);
+              const name = asv ? asv.name : aid;
+              ad.segments.forEach(seg=>{
+                const duration = seg.end-seg.start;
+                addRow(['ASV', key, dayName, name, '', ad.type||'', seg.start, seg.end, duration.toFixed(2), '', '']);
+              });
+            });
+          });
+        }
+
+        const csv = rows.map(r=>r.join(';')).join('\r\n');
+        const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `planning-${MOIS[month]}-${year}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      },[planning,asvPlanning,vets,asvs,month,year]);
+
       const TABS=[
         {id:'planning',label:'Planning',icon:'📅'},
         {id:'asv',     label:'Planning ASV',icon:'👩‍⚕️'},
@@ -1685,6 +1755,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               vets={vets} year={year} month={month}
               gclientId={gclientId} setGclientId={setGclientId}
               calId={calId} setCalId={setCalId} onExportICS={exportICS}
+              onExportCSV={exportCSV}
               astreintes={astreintes}/>
           )}
 
@@ -3528,7 +3599,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Sync ───────────────────────────────────────────
-    function SyncTab({validated,totalAlerts,planning,vets,year,month,gclientId,setGclientId,calId,setCalId,onExportICS,astreintes}){
+    function SyncTab({validated,totalAlerts,planning,vets,year,month,gclientId,setGclientId,calId,setCalId,onExportICS,onExportCSV,astreintes}){
       const [copied, setCopied] = useState(false);
       const planDays=Object.keys(planning).filter(k=>planning[k]).length;
       const hasP=planDays>0;
@@ -3551,9 +3622,14 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             <p style={{fontSize:13,color:'#6b7280',marginBottom:14}}>
               2 événements par jour (matin + après-midi) avec les horaires. Compatible Google Calendar, Outlook, Apple Calendar.
             </p>
-            <button onClick={onExportICS} disabled={!hasP} className="btn-teal">
-              ↓ Télécharger planning-{MOIS[month]}-{year}.ics
-            </button>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              <button onClick={onExportICS} disabled={!hasP} className="btn-teal">
+                ↓ Télécharger planning-{MOIS[month]}-{year}.ics
+              </button>
+              <button onClick={onExportCSV} disabled={!hasP} className="btn-outline" style={{borderColor:'#7c3aed',color:'#7c3aed'}}>
+                ↓ Télécharger planning-{MOIS[month]}-{year}.csv
+              </button>
+            </div>
           </div>
           <div className="g-card" style={{marginBottom:20}}>
             <h3 style={{fontSize:15,fontWeight:600,marginBottom:14,color:'#1f2937'}}>🔗 Google Calendar API</h3>
