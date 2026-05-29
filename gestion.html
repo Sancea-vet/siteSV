@@ -2780,8 +2780,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       };
 
       return(
-        <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}
-          onMouseUp={()=>setDrag(null)}>
+        <div className="modal-overlay active" onClick={e=>e.target===e.currentTarget&&onClose()}
+          onMouseUp={()=>setDrag(null)} style={{opacity:1,visibility:'visible'}}>
           <div className="asv-modal-box">
             {/* Header */}
             <div className="modal-head" style={{display:'flex',justifyContent:'space-between',
