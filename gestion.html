@@ -2557,7 +2557,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
                     return(
                       <div key={di}
-                        onClick={()=>!closed&&hasDayData&&setEditKey(key)}
+                        onClick={()=>!closed&&setEditKey(key)}
                         className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')
                           +(hasDayData&&!closed?' asv-has-data':'')}>
                         {/* En-tête jour */}
