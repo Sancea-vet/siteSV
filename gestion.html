@@ -870,7 +870,8 @@
  if(astrVet && canWork(astrVet,'aprem')){
  const closeH = isSat ? 'aprem_A' : 'aprem_B';
  const tgt = day.aprem.find(s=>s.horaire===closeH);
- if(tgt && !tgt.vets.includes(astrVet)) tgt.vets.push(astrVet);
+ const alreadyInAprem = day.aprem.some(s=>s.vets.includes(astrVet));
+ if(tgt && !tgt.vets.includes(astrVet) && !alreadyInAprem) tgt.vets.push(astrVet);
  }
 
  const ensureOne = (arr, hid, slotName, bias=null) => {
