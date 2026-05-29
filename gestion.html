@@ -390,6 +390,29 @@
       const [asvRules,  setAsvRules]  = useState(DEFAULT_ASV_RULES);
       const [asvPlanning,setAsvPlanning]=useState({});
       const [asvUnavailRanges,setAsvUnavailRanges]=useState([]);
+
+      // ── Migration : ancien format tableau → nouveau format objet ─
+      useEffect(()=>{
+        const needsMigration=Object.values(asvPlanning).some(v=>Array.isArray(v));
+        if(!needsMigration) return;
+        setAsvPlanning(prev=>{
+          const next={};
+          Object.entries(prev).forEach(([key,val])=>{
+            if(!Array.isArray(val)){next[key]=val;return;}
+            // Ancien format: [{asvId,start,end,hoursDay,type}, ...]
+            const dd={};
+            val.forEach(slot=>{
+              if(!slot||!slot.asvId||dd[slot.asvId]) return;
+              dd[slot.asvId]={
+                segments:[{start:slot.start||0,end:slot.end||0}],
+                type:slot.type||'full'
+              };
+            });
+            next[key]=dd;
+          });
+          return next;
+        });
+      },[asvPlanning]);
       const [editDay,   setEditDay]   = useState(null);
       const [gclientId, setGclientId] = useState('');
       const [calId,     setCalId]     = useState('primary');
@@ -2296,17 +2319,22 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         const st={};
         Object.entries(asvPlanning).filter(([k])=>k.startsWith(monthPfx))
           .forEach(([key,dd])=>{
+            if(!dd||Array.isArray(dd)) return; // skip old/invalid format
             const [y,m,d]=key.split('-').map(Number);
             const wn=isoWeek(y,m-1,d);
             if(!st[wn]) st[wn]={};
             Object.entries(dd).forEach(([aid,ad])=>{
+              if(!ad||!Array.isArray(ad.segments)) return; // defensive
               st[wn][aid]=(st[wn][aid]||0)+segH(ad.segments);
             });
           });
         return st;
       },[asvPlanning,monthPfx,isoWeek]);
 
-      const hasPlanning=Object.keys(asvPlanning).some(k=>k.startsWith(monthPfx));
+      const hasPlanning=Object.keys(asvPlanning).some(k=>{
+        const v=asvPlanning[k];
+        return k.startsWith(monthPfx)&&v&&!Array.isArray(v)&&Object.keys(v).length>0;
+      });
       const hasVetPlanning=Object.keys(planning).some(k=>k.startsWith(monthPfx));
 
       const weeks=useMemo(()=>{
@@ -2460,11 +2488,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     const closed=!openDays[dow]||isHoliday;
                     const today=new Date().toDateString()===new Date(year,month,day).toDateString();
                     const we=isWE(dow);
-                    const dayData=asvPlanning[key]||{};
+                    const rawDD=asvPlanning[key];
+                    const dayData=(rawDD&&!Array.isArray(rawDD))?rawDD:{};
                     const assignedIds=Object.keys(dayData);
                     const wn=isoWeek(year,month,day);
                     const wp=weekParity(year,month,day);
-                    const hasDayData=assignedIds.length>0;
+                    const hasDayData=assignedIds.some(id=>dayData[id]?.segments?.length>0);
                     const indispos=asvUnavailRanges.filter(r=>r.fromDate<=key&&r.toDate>=key);
 
                     return(
@@ -2498,7 +2527,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                           <div>
                             {/* Mini Gantt — une ligne par ASV */}
                             {asvs.map(a=>{
-                              const ad=dayData[a.id]; if(!ad) return null;
+                              const ad=dayData[a.id];
+                              if(!ad||!Array.isArray(ad.segments)||!ad.segments.length) return null;
                               const h=segH(ad.segments);
                               return(
                                 <div key={a.id} style={{marginBottom:2}}>
@@ -2617,7 +2647,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const initMatrix = () => {
         const m={};
         asvs.forEach(a=>{
-          const ad=(asvPlanning[dateKey]||{})[a.id];
+          const dayRaw=(asvPlanning[dateKey]||{});
+          const ad=(!Array.isArray(dayRaw)&&dayRaw[a.id]?.segments)?dayRaw[a.id]:null;
           m[a.id] = ad ? segsToSet(ad.segments) : new Set();
         });
         return m;
@@ -3903,8 +3934,31 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       );
     }
 
+    class ErrorBoundary extends React.Component {
+      constructor(p){super(p);this.state={err:null};}
+      static getDerivedStateFromError(e){return {err:e};}
+      render(){
+        if(this.state.err) return(
+          <div style={{padding:40,fontFamily:"'Inter',sans-serif",textAlign:'center',maxWidth:600,margin:'80px auto'}}>
+            <div style={{fontSize:48,marginBottom:16}}>⚠️</div>
+            <h2 style={{color:'#dc2626',marginBottom:8}}>Erreur de rendu</h2>
+            <div style={{background:'#fef2f2',border:'1px solid #fecaca',borderRadius:12,padding:16,
+              marginBottom:20,fontSize:13,color:'#991b1b',textAlign:'left',fontFamily:'monospace',wordBreak:'break-all'}}>
+              {this.state.err.message}
+            </div>
+            <button onClick={()=>this.setState({err:null})}
+              style={{padding:'10px 24px',background:'#0d9488',color:'#fff',border:'none',borderRadius:8,
+                fontSize:14,fontWeight:600,cursor:'pointer'}}>
+              Réessayer
+            </button>
+          </div>
+        );
+        return this.props.children;
+      }
+    }
+
     const root = ReactDOM.createRoot(document.getElementById('gestion-root'));
-    root.render(<App />);
+    root.render(<ErrorBoundary><App /></ErrorBoundary>);
   </script>
 </body>
 </html>
