@@ -1186,121 +1186,157 @@ const generateAstreintes = useCallback(()=>{
       // ── Génération Planning ASV ────────────────────────────────
       const generateASVPlanning = useCallback(()=>{
         const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
-        const roundQ = h => Math.round(h*4)/4;
+        const Q = h => Math.round(h*4)/4;   // arrondi 15min
+        const eps = 0.24;                    // tolérance 15min-1 pour comparaisons
+
+        // ── Chevauchement ───────────────────────────────────────
         const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
 
-        // ── Indisponibilité ASV sur un créneau ──────────────────
-        const isUnavailAt = (asvId, dateKey, startH, endH) =>
-          asvUnavailRanges.some(r => {
-            if(r.asvId !== asvId || dateKey < r.fromDate || dateKey > r.toDate) return false;
-            const rS = dateKey===r.fromDate ? r.fromTime : 0;
-            const rE = dateKey===r.toDate   ? r.toTime   : 24;
-            return overlaps(startH, endH, rS, rE);
+        // ── Indisponibilité ─────────────────────────────────────
+        const isUnavailAt = (asvId, dateKey, sH, eH) =>
+          asvUnavailRanges.some(r=>{
+            if(r.asvId!==asvId||dateKey<r.fromDate||dateKey>r.toDate) return false;
+            const rS=dateKey===r.fromDate?r.fromTime:0;
+            const rE=dateKey===r.toDate?r.toTime:24;
+            return overlaps(sH,eH,rS,rE);
           });
 
-        // ── Horaires staggerés pour N ASVs journée complète ─────
-        // S=debut ASV, E=fin ASV, lb=pause déj.
-        // Pauses séquentielles (pas de chevauchement → couverture continue)
-        const computeStaggered = (asvIds, S, E, lb) => {
+        // ── Pauses déjeuner décalées ────────────────────────────
+        // Génère des segments individuels pour N ASVs journée complète.
+        // Pauses séquentielles (pas de chevauchement → couverture continue).
+        // h_override[asvId] = heures réelles à couvrir (pour shift partiel)
+        const computeStaggered = (asvIds, S, E, lb, hOverride={}) => {
           const res = {};
           const n = asvIds.length;
-          if(n===0) return res;
-          // Fenêtre lunch idéale : centrer autour de 12h30, sans rogner les marges
-          const minLS = roundQ(S + 0.5);          // 30min de travail minimum avant la pause
-          const maxLE = roundQ(E - 0.5);          // 30min après la pause
+          if(!n) return res;
+
+          const minLS = Q(S + 0.5);
+          const maxLE = Q(E - 0.5);
           const totalSpan = n * lb;
-          // Premier démarrage de pause = centre - totalSpan/2, clampé
-          const idealFirst = roundQ(13.0 - totalSpan/2); // vise 13h pour le centre des pauses
-          const firstLS = Math.max(minLS, Math.min(idealFirst, roundQ(maxLE - totalSpan)));
-          asvIds.forEach((asvId, i) => {
-            let ls = roundQ(firstLS + i * lb);
-            let le = roundQ(ls + lb);
-            // Sécurité : reclampe si déborde
-            if(le > maxLE){ le = maxLE; ls = roundQ(le - lb); }
-            if(ls < minLS){ ls = minLS; le = roundQ(ls + lb); }
-            const segs = [];
-            if(ls > S) segs.push({start:S, end:ls});
-            if(le < E) segs.push({start:le, end:E});
-            if(segs.length===0) segs.push({start:S, end:E});
-            res[asvId] = {segments:segs};
+          const firstLS = Math.max(minLS, Math.min(Q(13.0 - totalSpan/2), Q(maxLE - totalSpan)));
+
+          asvIds.forEach((aid, i)=>{
+            const targetH = hOverride[aid] ?? Q((E-S)-lb);
+            let ls = Q(firstLS + i*lb);
+            let le = Q(ls + lb);
+            // Reclampe si déborde
+            if(le>maxLE){ le=maxLE; ls=Q(le-lb); }
+            if(ls<minLS){ ls=minLS; le=Q(ls+lb); }
+
+            // Si heures < pleine journée → shift partiel matin seulement
+            // (l'ASV part après avoir complété son quota)
+            const fullH = Q((E-S)-lb);
+            if(targetH < fullH - eps){
+              // Shift partiel : [S, S+targetH] si targetH ≤ durée matin
+              // ou matin complet + partie aprem
+              const morningH = Q(ls - S);
+              if(targetH <= morningH + eps){
+                // Seulement matin, part avant déjeuner
+                res[aid]={segments:[{start:S, end:Q(S+targetH)}]};
+              } else {
+                // Matin complet + début aprem (sans toute la pause)
+                const apremH = Q(targetH - morningH);
+                res[aid]={segments:[{start:S,end:ls},{start:le,end:Q(le+apremH)}]};
+              }
+            } else {
+              // Journée complète
+              const segs=[];
+              if(ls>S) segs.push({start:S,end:ls});
+              if(le<E) segs.push({start:le,end:E});
+              if(!segs.length) segs.push({start:S,end:E});
+              res[aid]={segments:segs};
+            }
           });
           return res;
         };
 
-        // ── Calcul infos journalières ───────────────────────────
+        // ── Calcul info journalière ─────────────────────────────
         const computeDayInfo = (d) => {
-          const key = dk(year,month,d);
-          const dow = dowJS(year,month,d);
-          if(!openDays[dow] || holidays.has(key)) return null;
-          const dp = planning[key]; if(!dp) return null;
-          const mS=[],mE=[],aS=[],aE=[], vetSet=new Set();
+          const key=dk(year,month,d);
+          const dow=dowJS(year,month,d);
+          if(!openDays[dow]||holidays.has(key)) return null;
+          const dp=planning[key]; if(!dp) return null;
+          const mS=[],mE=[],aS=[],aE=[],vetSet=new Set();
           toSlotArr(dp.matin).forEach(s=>{
             if(!s.vets||!s.vets.length) return;
             const t=HORAIRE_TIMES[s.horaire]; if(!t) return;
-            mS.push(t.start); mE.push(t.end); s.vets.forEach(v=>vetSet.add(v));
+            mS.push(t.start);mE.push(t.end);s.vets.forEach(v=>vetSet.add(v));
           });
           toSlotArr(dp.aprem).forEach(s=>{
             if(!s.vets||!s.vets.length) return;
             const t=HORAIRE_TIMES[s.horaire]; if(!t) return;
-            aS.push(t.start); aE.push(t.end); s.vets.forEach(v=>vetSet.add(v));
+            aS.push(t.start);aE.push(t.end);s.vets.forEach(v=>vetSet.add(v));
           });
-          if(vetSet.size===0) return null;
+          if(!vetSet.size) return null;
           const allS=[...mS,...aS], allE=[...mE,...aE];
-          const asvStart = roundQ(Math.min(...allS)-0.5);
-          const asvEnd   = roundQ(Math.max(...allE)+0.5);
-          const hasMatin = mE.length>0, hasAprem = aS.length>0;
-          const morningEnd     = hasMatin ? roundQ(Math.max(...mE)+0.5) : null;
-          const afternoonStart = hasAprem ? roundQ(Math.min(...aS)-0.5) : null;
-          // Heures effective : pause déj seulement si journée complète (matin+aprem)
-          const fullDay = hasMatin && hasAprem;
-          const hoursFullDay = roundQ(fullDay ? (asvEnd-asvStart)-asvRules.lunchBreak : (asvEnd-asvStart));
-          const hoursMatin = hasMatin ? roundQ(morningEnd - asvStart) : 0;
-          return {key, vetCount:vetSet.size, asvStart, asvEnd, morningEnd, afternoonStart,
-                  hasMatin, hasAprem, fullDay, hoursFullDay, hoursMatin};
+          const asvStart=Q(Math.min(...allS)-0.5);
+          const asvEnd  =Q(Math.max(...allE)+0.5);
+          const hasMatin=mE.length>0, hasAprem=aS.length>0;
+          const morningEnd=hasMatin?Q(Math.max(...mE)+0.5):null;
+          const fullDay=hasMatin&&hasAprem;
+          const hoursFullDay=Q(fullDay?(asvEnd-asvStart)-asvRules.lunchBreak:(asvEnd-asvStart));
+          const hoursMatin=hasMatin?Q((morningEnd||asvEnd)-asvStart):0;
+          return {key,vetCount:vetSet.size,asvStart,asvEnd,morningEnd,
+                  hasMatin,hasAprem,fullDay,hoursFullDay,hoursMatin};
         };
 
-        // ── Indexation semaines ─────────────────────────────────
-        const dayInfoMap = {}, weekDaysMap = {};
+        // ── Index semaines ──────────────────────────────────────
+        const dayInfoMap={}, weekDaysMap={};
         for(let d=1;d<=numDays;d++){
-          const info = computeDayInfo(d); if(!info) continue;
+          const info=computeDayInfo(d); if(!info) continue;
           dayInfoMap[d]=info;
           const wn=isoWeek(year,month,d);
           if(!weekDaysMap[wn]) weekDaysMap[wn]=[];
           weekDaysMap[wn].push(d);
         }
 
-        // ── Collecte des affectations (qui travaille quel jour, quel type) ──
-        // assign[dateKey][asvId] = type
-        const assign = {};
-        const weeklyH = {};
-        const getWH = (aid,wn)=>(weeklyH[wn]||{})[aid]||0;
-        const addWH = (aid,wn,h)=>{ if(!weeklyH[wn]) weeklyH[wn]={}; weeklyH[wn][aid]=(weeklyH[wn][aid]||0)+roundQ(h); };
-        const rem = (aid,wn)=>Math.max(0, asvRules.hoursPerWeek-getWH(aid,wn));
-        const isOn = (aid,key)=>!!(assign[key]&&assign[key][aid]);
+        // ── État heures hebdo ───────────────────────────────────
+        const weeklyH={};
+        const getWH=(aid,wn)=>(weeklyH[wn]||{})[aid]||0;
+        const addWH=(aid,wn,h)=>{
+          if(!weeklyH[wn]) weeklyH[wn]={};
+          weeklyH[wn][aid]=Q((weeklyH[wn][aid]||0)+h);
+        };
+        // Heures restantes jusqu'au contrat (arrondi 15min, plancher 0)
+        const remH=(aid,wn)=>Math.max(0, Q(asvRules.hoursPerWeek-getWH(aid,wn)));
 
-        // PHASE 1 — Base : 1 ASV/véto, journée complète
+        // assign[dateKey][asvId] = {type, hDay} — hDay = heures réelles ce jour
+        const assign={};
+        const isOn=(aid,key)=>!!(assign[key]&&assign[key][aid]);
+        const markAssign=(key,aid,type,hDay)=>{
+          if(!assign[key]) assign[key]={};
+          assign[key][aid]={type,hDay};
+        };
+
+        // ══════════════════════════════════════════════════════
+        // PHASE 1 — Couverture de base : 1 ASV/véto, journée complète
+        //  Priorité aux ASVs dont les heures tiennent dans le contrat.
+        //  Si impossible : assigner quand même (overQuota) pour couvrir.
+        // ══════════════════════════════════════════════════════
         Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
           const wn=+wnStr;
           days.forEach(d=>{
             const info=dayInfoMap[d];
             const {key,vetCount,asvStart,asvEnd,hoursFullDay}=info;
-            if(!assign[key]) assign[key]={};
+            // Tri : ASVs les moins chargées en premier
             const sorted=[...asvs].sort((a,b)=>getWH(a.id,wn)-getWH(b.id,wn));
             let cnt=0;
+            // Passe 1 : ASVs qui ne dépassent pas leur contrat
             for(const asv of sorted){
               if(cnt>=vetCount) break;
               if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
-              assign[key][asv.id]='full';
+              if(getWH(asv.id,wn)+hoursFullDay>asvRules.hoursPerWeek+eps) continue;
+              markAssign(key,asv.id,'full',hoursFullDay);
               addWH(asv.id,wn,hoursFullDay);
               cnt++;
             }
-            // Fallback : forcer si pas assez (marquer overQuota)
+            // Passe 2 : si pas assez, prendre les disponibles même si ça dépasse
             if(cnt<vetCount){
               for(const asv of sorted){
                 if(cnt>=vetCount) break;
                 if(isOn(asv.id,key)) continue;
                 if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
-                assign[key][asv.id]='full_over';
+                markAssign(key,asv.id,'full_over',hoursFullDay);
                 addWH(asv.id,wn,hoursFullDay);
                 cnt++;
               }
@@ -1308,74 +1344,96 @@ const generateAstreintes = useCallback(()=>{
           });
         });
 
-        // PHASE 2 — Renfort matin (priorité) pour atteindre le quota
+        // ══════════════════════════════════════════════════════
+        // PHASE 2 — Renfort matin : pour les ASVs sous quota
+        //  Ajoute des créneaux matin (heures ≤ restantes) sur les jours
+        //  non encore couverts, priorité aux jours avec le + de vétos.
+        // ══════════════════════════════════════════════════════
         Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
           const wn=+wnStr;
           const matinDays=days.filter(d=>dayInfoMap[d].hasMatin)
             .sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
           asvs.forEach(asv=>{
             matinDays.forEach(d=>{
-              if(rem(asv.id,wn)<0.25) return;
+              const rem=remH(asv.id,wn);
+              if(rem<0.25-eps) return; // quota atteint
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
-              if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd)) return;
-              const h=Math.min(rem(asv.id,wn),info.hoursMatin);
-              if(!assign[info.key]) assign[info.key]={};
-              assign[info.key][asv.id]='renfort_matin';
+              if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd||info.asvEnd)) return;
+              const h=Math.min(rem,info.hoursMatin);
+              if(h<0.25-eps) return;
+              markAssign(info.key,asv.id,'renfort_matin',Q(h));
               addWH(asv.id,wn,h);
             });
           });
         });
 
-        // PHASE 3 — Renfort journée pour le quota restant
+        // ══════════════════════════════════════════════════════
+        // PHASE 3 — Renfort journée : combler le quota restant
+        //  Utilise des journées complètes ou partielles selon les heures
+        //  restantes — jamais plus que le contrat.
+        // ══════════════════════════════════════════════════════
         Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
           const wn=+wnStr;
           const allDays=[...days].sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
           asvs.forEach(asv=>{
             allDays.forEach(d=>{
-              if(rem(asv.id,wn)<0.25) return;
+              const rem=remH(asv.id,wn);
+              if(rem<0.25-eps) return;
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
               if(isUnavailAt(asv.id,info.key,info.asvStart,info.asvEnd)) return;
-              const h=Math.min(rem(asv.id,wn),info.hoursFullDay);
-              if(!assign[info.key]) assign[info.key]={};
-              assign[info.key][asv.id]='renfort_jour';
+              // Heures à couvrir = min(restant, journée complète)
+              const h=Math.min(rem,info.hoursFullDay);
+              if(h<0.25-eps) return;
+              const type=h<info.hoursFullDay-eps?'renfort_partiel':'renfort_jour';
+              markAssign(info.key,asv.id,type,Q(h));
               addWH(asv.id,wn,h);
             });
           });
         });
 
         // ── Conversion affectations → segments horaires ─────────
-        const newASVP = {};
-        Object.entries(assign).forEach(([key, dayAssign])=>{
-          // Retrouver le jour
-          const d = parseInt(key.slice(8));
-          const info = dayInfoMap[d]; if(!info) return;
+        const newASVP={};
+        Object.entries(assign).forEach(([key,dayAssign])=>{
+          const d=parseInt(key.slice(8));
+          const info=dayInfoMap[d]; if(!info) return;
 
-          const fullIds=[], matinIds=[];
-          Object.entries(dayAssign).forEach(([aid,type])=>{
-            if(type==='renfort_matin') matinIds.push(aid);
-            else fullIds.push(aid);
+          const matinIds=[], fullIds=[], fullHours={};
+          Object.entries(dayAssign).forEach(([aid,{type,hDay}])=>{
+            if(type==='renfort_matin'){
+              matinIds.push(aid);
+            } else {
+              fullIds.push(aid);
+              fullHours[aid]=hDay; // peut être < hoursFullDay si partiel
+            }
           });
 
-          const dayData = {};
+          const dayData={};
 
-          // Renfort matin : segment [asvStart, morningEnd] sans pause
+          // Renfort matin : segment [asvStart, asvStart+hDay]
           matinIds.forEach(aid=>{
-            dayData[aid]={segments:[{start:info.asvStart, end:info.morningEnd||info.asvEnd}], type:'renfort_matin'};
+            const hDay=dayAssign[aid].hDay;
+            const end=Q(info.asvStart+hDay);
+            dayData[aid]={
+              segments:[{start:info.asvStart, end:Math.min(end, info.morningEnd||info.asvEnd)}],
+              type:'renfort_matin'
+            };
           });
 
-          // Journée complète : pauses staggerées si hasMatin+hasAprem
+          // Journée (complète ou partielle) : pauses staggerées
           if(fullIds.length>0){
             if(info.fullDay){
-              const stag = computeStaggered(fullIds, info.asvStart, info.asvEnd, asvRules.lunchBreak);
+              const stag=computeStaggered(fullIds,info.asvStart,info.asvEnd,asvRules.lunchBreak,fullHours);
               fullIds.forEach(aid=>{
-                dayData[aid]={...stag[aid], type: dayAssign[aid]};
+                dayData[aid]={...stag[aid],type:dayAssign[aid].type};
               });
             } else {
-              // Demi-journée : pas de pause
+              // Demi-journée (pas de pause)
               fullIds.forEach(aid=>{
-                dayData[aid]={segments:[{start:info.asvStart,end:info.asvEnd}], type: dayAssign[aid]};
+                const hDay=dayAssign[aid].hDay;
+                const end=Q(Math.min(info.asvStart+hDay, info.asvEnd));
+                dayData[aid]={segments:[{start:info.asvStart,end}],type:dayAssign[aid].type};
               });
             }
           }
@@ -2301,7 +2359,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     // Helpers partagés
     const segH = segs => segs.reduce((s,g)=>s+(g.end-g.start),0);
     const GANTT_S=7.5, GANTT_E=20.5, GANTT_R=GANTT_E-GANTT_S;
-    const TYPE_OPACITY={full:1,'full_over':1,renfort_matin:0.55,renfort_jour:0.75};
+    const TYPE_OPACITY={full:1,'full_over':1,renfort_matin:0.55,renfort_jour:0.75,renfort_partiel:0.65};
 
     function ASVTab({year,month,numDays,startCol,vets,planning,openDays,
       asvs,setAsvs,asvRules,setAsvRules,
@@ -2436,14 +2494,15 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                               const pct=Math.min(100,h/asvRules.hoursPerWeek*100);
                               const over=h>asvRules.hoursPerWeek+0.25;
                               const ok=!over&&h>=asvRules.hoursPerWeek-0.25;
-                              const col=over?'#dc2626':ok?'#059669':h>0?'#d97706':'#9ca3af';
+                              const under=!over&&!ok&&h>0;
+                              const col=over?'#dc2626':ok?'#059669':under?'#d97706':'#9ca3af';
                               return(
                                 <td key={wn} style={{padding:'6px 12px',textAlign:'center'}}>
                                   {h>0?(
                                     <>
                                       <div style={{fontSize:12,fontWeight:600,color:col}}>
                                         {h.toFixed(2).replace(/\.?0+$/,'')}h
-                                        {over?' ⚠️':ok?' ✓':''}
+                                        {over?' ⚠️':ok?' ✓':under?' ↗':''}
                                       </div>
                                       <div style={{height:3,borderRadius:2,background:'#f1f5f9',
                                         width:56,margin:'3px auto 0'}}>
@@ -2466,7 +2525,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   </table>
                 </div>
                 <p style={{fontSize:11,color:'#9ca3af',marginTop:8}}>
-                  Pauses décalées — pas de chevauchement → couverture non-stop · +30 min par rapport aux vétérinaires
+                  ✓ = contrat exact (±15min) · ↗ = sous contrat · ⚠️ = dépassement · Pauses décalées → couverture non-stop
                 </p>
               </div>
             )}
@@ -2594,8 +2653,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             </div>
           </>)}
 
-          {/* Modal éditeur de jour */}
-          {editKey&&(
+          {/* Modal éditeur de jour — portal pour éviter les problèmes d'opacité/z-index */}
+          {editKey&&ReactDOM.createPortal(
             <ASVDayModal
               dateKey={editKey}
               asvs={asvs}
@@ -2603,7 +2662,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               setAsvPlanning={setAsvPlanning}
               asvRules={asvRules}
               year={year} month={month}
-              onClose={()=>setEditKey(null)}/>
+              onClose={()=>setEditKey(null)}/>,
+            document.body
           )}
         </div>
       );
