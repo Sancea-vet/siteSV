@@ -390,6 +390,7 @@
       const [asvRules,  setAsvRules]  = useState(DEFAULT_ASV_RULES);
       const [asvPlanning,setAsvPlanning]=useState({});
       const [asvUnavailRanges,setAsvUnavailRanges]=useState([]);
+      const [asvPersonalRules,setAsvPersonalRules]=useState({});
 
       // ── Migration : ancien format tableau → nouveau format objet ─
       useEffect(()=>{
@@ -487,6 +488,7 @@
             if(d.asvRules)   setAsvRules(d.asvRules);
             if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
             if(d.asvUnavailRanges) setAsvUnavailRanges(d.asvUnavailRanges);
+            if(d.asvPersonalRules) setAsvPersonalRules(d.asvPersonalRules);
             if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
             if(d.gclientId)  setGclientId(d.gclientId);
             if(d.calId)      setCalId(d.calId);
@@ -520,6 +522,7 @@
               asvRules: data.asvRules,
               asvPlanning: data.asvPlanning,
               asvUnavailRanges: data.asvUnavailRanges,
+              asvPersonalRules: data.asvPersonalRules,
               nav: { year: data.year, month: data.month },
               gclientId: data.gclientId,
               calId: data.calId,
@@ -534,18 +537,18 @@
 
       useEffect(()=>{
         if(loaded && apiReady)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,year,month,gclientId,calId,loaded,apiReady});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,year,month,gclientId,calId,loaded,apiReady]);
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,year,month,gclientId,calId,loaded,apiReady});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,year,month,gclientId,calId,loaded,apiReady]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
-        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,gclientId,calId};
+        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,gclientId,calId};
         const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
         URL.revokeObjectURL(url);
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,gclientId,calId]);
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,gclientId,calId]);
 
       const importJSON = useCallback(()=>{
         const input = document.createElement('input');
@@ -568,6 +571,7 @@
               if(d.asvRules)   setAsvRules(d.asvRules);
               if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
               if(d.asvUnavailRanges) setAsvUnavailRanges(d.asvUnavailRanges);
+              if(d.asvPersonalRules) setAsvPersonalRules(d.asvPersonalRules);
               if(d.gclientId)  setGclientId(d.gclientId);
               if(d.calId)      setCalId(d.calId);
               alert('✅ Import réussi !');
@@ -1192,6 +1196,20 @@ const generateAstreintes = useCallback(()=>{
         const MAX_EARLY_ASVS = 2;           // max 2 ASV de 8h00 à 8h30
         const MAX_DAY_HOURS = 8;            // jour ASV limité à 8h max
 
+        // ── Règles personnelles ASV (jour off / fin anticipée) ──────
+        const getDowOfDay = (d) => dowJS(year, month, d);
+
+        const hasAsvDayOff = (asvId, d) => {
+          const pr = asvPersonalRules[asvId] || [];
+          return pr.some(r => r.type === 'day_off' && r.dow === getDowOfDay(d));
+        };
+
+        const getAsvEarlyEnd = (asvId, d) => {
+          const pr = asvPersonalRules[asvId] || [];
+          const r = pr.find(r => r.type === 'early_end' && r.dow === getDowOfDay(d));
+          return r ? Q(r.endTime) : null;
+        };
+
         // ── Chevauchement ───────────────────────────────────────
         const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
 
@@ -1327,6 +1345,7 @@ const generateAstreintes = useCallback(()=>{
             // Passe 1 : ASVs qui ne dépassent pas leur contrat
             for(const asv of sorted){
               if(cnt>=vetCount) break;
+              if(hasAsvDayOff(asv.id, d)) continue;
               if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
               if(getWH(asv.id,wn)+hoursFullDay>asvRules.hoursPerWeek+eps) continue;
               markAssign(key,asv.id,'full',hoursFullDay);
@@ -1338,6 +1357,7 @@ const generateAstreintes = useCallback(()=>{
               for(const asv of sorted){
                 if(cnt>=vetCount) break;
                 if(isOn(asv.id,key)) continue;
+                if(hasAsvDayOff(asv.id, d)) continue;
                 if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
                 markAssign(key,asv.id,'full_over',hoursFullDay);
                 addWH(asv.id,wn,hoursFullDay);
@@ -1362,6 +1382,7 @@ const generateAstreintes = useCallback(()=>{
               if(rem<0.25-eps) return; // quota atteint
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
+              if(hasAsvDayOff(asv.id, d)) return;
               if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd||info.asvEnd)) return;
               const h=Math.min(rem,info.hoursMatin);
               if(h<0.25-eps) return;
@@ -1385,6 +1406,7 @@ const generateAstreintes = useCallback(()=>{
               if(rem<0.25-eps) return;
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
+              if(hasAsvDayOff(asv.id, d)) return;
               if(isUnavailAt(asv.id,info.key,info.asvStart,info.asvEnd)) return;
               // Heures à couvrir = min(restant, journée complète)
               const h=Math.min(rem,info.hoursFullDay);
@@ -1446,6 +1468,20 @@ const generateAstreintes = useCallback(()=>{
               type:'renfort_matin'
             };
           });
+
+          // ── Appliquer règles early_end (fin anticipée) ──────────
+          Object.keys(dayData).forEach(aid=>{
+            const earlyEnd = getAsvEarlyEnd(aid, d);
+            if(earlyEnd === null) return;
+            const ad = dayData[aid];
+            if(!ad || !ad.segments) return;
+            const capped = ad.segments
+              .map(seg => ({...seg, end: Math.min(seg.end, earlyEnd)}))
+              .filter(seg => seg.start < seg.end - 0.01);
+            if(capped.length > 0) dayData[aid] = {...ad, segments: capped};
+            else delete dayData[aid];
+          });
+
           newASVP[key]=dayData;
         });
 
@@ -1455,7 +1491,7 @@ const generateAstreintes = useCallback(()=>{
           Object.assign(next,newASVP);
           return next;
         });
-      },[year,month,numDays,planning,openDays,holidays,asvs,asvRules,asvUnavailRanges]);
+      },[year,month,numDays,planning,openDays,holidays,asvs,asvRules,asvUnavailRanges,asvPersonalRules]);
 
 const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const startCol = useMemo(()=>firstCol(year,month),[year,month]);
@@ -1740,6 +1776,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               asvRules={asvRules} setAsvRules={setAsvRules}
               asvPlanning={asvPlanning} setAsvPlanning={setAsvPlanning}
               asvUnavailRanges={asvUnavailRanges} setAsvUnavailRanges={setAsvUnavailRanges}
+              asvPersonalRules={asvPersonalRules} setAsvPersonalRules={setAsvPersonalRules}
               holidays={holidays}
               onGenerate={generateASVPlanning}
               isoWeek={isoWeek} weekParity={weekParity}/>
@@ -2437,6 +2474,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       asvs,setAsvs,asvRules,setAsvRules,
       asvPlanning,setAsvPlanning,
       asvUnavailRanges,setAsvUnavailRanges,
+      asvPersonalRules,setAsvPersonalRules,
       holidays,onGenerate,isoWeek,weekParity}){
 
       const [section,setSection]=useState('planning');
@@ -2503,7 +2541,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             ))}
           </div>
 
-          {section==='regles'&&<ASVRegles asvRules={asvRules} setAsvRules={setAsvRules}/>}
+          {section==='regles'&&<ASVRegles asvRules={asvRules} setAsvRules={setAsvRules}
+            asvs={asvs} asvPersonalRules={asvPersonalRules} setAsvPersonalRules={setAsvPersonalRules}/>}
           {section==='equipe'&&<ASVEquipe asvs={asvs} setAsvs={setAsvs}/>}
 
           {section==='planning'&&(<>
@@ -3127,9 +3166,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Règles ASV ────────────────────────────────────────────
-    function ASVRegles({asvRules,setAsvRules}){
+    function ASVRegles({asvRules,setAsvRules,asvs,asvPersonalRules,setAsvPersonalRules}){
       return(
-        <div style={{maxWidth:560}}>
+        <div style={{maxWidth:640}}>
           <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937',marginBottom:4}}>Règles ASV</h3>
           <p style={{color:'#6b7280',fontSize:13,marginBottom:20}}>Ces paramètres guident la génération automatique du planning ASV.</p>
 
@@ -3198,6 +3237,153 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               ))}
             </div>
           </div>
+
+          {/* Contraintes personnelles par ASV */}
+          <div className="g-card" style={{marginTop:16}}>
+            <h4 style={{fontSize:13,fontWeight:600,color:'#374151',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}}>
+              👤 Contraintes personnelles par ASV
+            </h4>
+            <p style={{fontSize:12,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
+              Jour off fixe hebdomadaire négocié, ou heure de fin anticipée un jour précis de la semaine.<br/>
+              Ces règles sont respectées lors de la génération automatique.
+            </p>
+            {asvs.length===0 && (
+              <p style={{fontSize:13,color:'#9ca3af',fontStyle:'italic'}}>Aucune ASV enregistrée.</p>
+            )}
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {asvs.map(asv=>(
+                <ASVPersonalRuleEditor
+                  key={asv.id}
+                  asv={asv}
+                  asvPersonalRules={asvPersonalRules}
+                  setAsvPersonalRules={setAsvPersonalRules}/>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ─── Éditeur de contraintes personnelles par ASV ────────────
+    function ASVPersonalRuleEditor({asv,asvPersonalRules,setAsvPersonalRules}){
+      const [open,   setOpen]    = useState(false);
+      const [rType,  setRType]   = useState('day_off');
+      const [dow,    setDow]     = useState(1);
+      const [endH,   setEndH]    = useState(17);
+
+      const rules = asvPersonalRules[asv.id] || [];
+
+      const JOURS_LONG = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+
+      // Options d'heure de fin (11h00 → 19h00 par demi-heure)
+      const endOpts = [];
+      for(let h=11; h<=19; h+=0.5) endOpts.push(h);
+      const fmtT = h => { const hh=Math.floor(h), mm=Math.round((h-hh)*60); return `${hh}h${String(mm).padStart(2,'0')}`; };
+
+      const addRule = () => {
+        // Un seul type de règle par jour par ASV
+        if(rules.some(r => r.dow === +dow && r.type === rType)) return;
+        const newRule = {id: uid(), type: rType, dow: +dow, ...(rType==='early_end' ? {endTime: +endH} : {})};
+        setAsvPersonalRules(prev => ({...prev, [asv.id]: [...(prev[asv.id]||[]), newRule]}));
+      };
+      const removeRule = id => setAsvPersonalRules(prev => ({...prev, [asv.id]: (prev[asv.id]||[]).filter(r=>r.id!==id)}));
+
+      const totalRules = rules.length;
+
+      return(
+        <div style={{border:'1.5px solid #e2e8f0',borderRadius:12,overflow:'hidden',
+          borderLeft:'4px solid '+asv.color}}>
+          {/* En-tête ASV */}
+          <div onClick={()=>setOpen(v=>!v)} style={{display:'flex',alignItems:'center',gap:10,
+            padding:'10px 14px',cursor:'pointer',background:open?asv.color+'0d':'#fff',
+            transition:'background .15s',userSelect:'none'}}>
+            <div style={{width:11,height:11,borderRadius:'50%',background:asv.color,flexShrink:0}}/>
+            <span style={{flex:1,fontWeight:600,fontSize:14,color:'#1f2937'}}>{asv.name}</span>
+            {totalRules>0&&(
+              <span style={{background:asv.color+'22',color:asv.color,border:'1px solid '+asv.color+'44',
+                borderRadius:10,padding:'1px 8px',fontSize:11,fontWeight:700}}>
+                {totalRules} contrainte{totalRules>1?'s':''}
+              </span>
+            )}
+            {totalRules===0&&<span style={{fontSize:11,color:'#9ca3af',fontStyle:'italic'}}>Aucune contrainte</span>}
+            <span style={{fontSize:11,color:'#9ca3af',marginLeft:4}}>{open?'▲':'▼'}</span>
+          </div>
+
+          {open&&(
+            <div style={{padding:'0 14px 14px',background:'#fafafa',borderTop:'1px solid #f1f5f9'}}>
+              {/* Liste des règles existantes */}
+              {rules.length===0&&(
+                <p style={{fontSize:12,color:'#9ca3af',fontStyle:'italic',marginTop:12,marginBottom:8}}>
+                  Aucune contrainte personnelle pour {asv.name}.
+                </p>
+              )}
+              {rules.length>0&&(
+                <div style={{display:'flex',flexDirection:'column',gap:6,marginTop:12,marginBottom:12}}>
+                  {rules.map(r=>(
+                    <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,
+                      padding:'8px 12px',background:'#fff',borderRadius:8,
+                      border:'1px solid #e2e8f0',fontSize:13}}>
+                      {r.type==='day_off'&&(
+                        <span style={{flex:1}}>
+                          🚫 <strong>Repos fixe</strong> — <span style={{color:asv.color,fontWeight:600}}>{JOURS_LONG[r.dow]}</span>
+                          <span style={{marginLeft:8,fontSize:11,color:'#9ca3af'}}>ne travaille pas ce jour</span>
+                        </span>
+                      )}
+                      {r.type==='early_end'&&(
+                        <span style={{flex:1}}>
+                          ⏰ <strong>Fin à {fmtT(r.endTime)}</strong> — <span style={{color:asv.color,fontWeight:600}}>{JOURS_LONG[r.dow]}</span>
+                          <span style={{marginLeft:8,fontSize:11,color:'#9ca3af'}}>fin de service anticipée</span>
+                        </span>
+                      )}
+                      <button onClick={()=>removeRule(r.id)} className="btn-danger-soft"
+                        style={{padding:'3px 10px',fontSize:11}}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Formulaire d'ajout */}
+              <div style={{background:'#f0fdfa',border:'1px solid #99f6e4',borderRadius:10,
+                padding:'10px 12px',display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
+                <div>
+                  <span className="g-label">Type de règle</span>
+                  <select value={rType} onChange={e=>setRType(e.target.value)} className="g-input">
+                    <option value="day_off">🚫 Jour off fixe</option>
+                    <option value="early_end">⏰ Fin anticipée</option>
+                  </select>
+                </div>
+                <div>
+                  <span className="g-label">Jour de la semaine</span>
+                  <select value={dow} onChange={e=>setDow(+e.target.value)} className="g-input">
+                    {[1,2,3,4,5,6,0].map(d=>(
+                      <option key={d} value={d}>{JOURS_LONG[d]}</option>
+                    ))}
+                  </select>
+                </div>
+                {rType==='early_end'&&(
+                  <div>
+                    <span className="g-label">Heure de fin</span>
+                    <select value={endH} onChange={e=>setEndH(+e.target.value)} className="g-input">
+                      {endOpts.map(h=><option key={h} value={h}>{fmtT(h)}</option>)}
+                    </select>
+                  </div>
+                )}
+                <button onClick={addRule} className="btn-teal"
+                  style={{fontSize:13,padding:'8px 16px'}}
+                  disabled={rules.some(r=>r.dow===+dow&&r.type===rType)}>
+                  + Ajouter
+                </button>
+              </div>
+              {rules.some(r=>r.dow===+dow&&r.type===rType)&&(
+                <p style={{fontSize:11,color:'#d97706',marginTop:6}}>
+                  ⚠ Une règle de ce type existe déjà pour {JOURS_LONG[+dow]}.
+                </p>
+              )}
+              <p style={{fontSize:11,color:'#9ca3af',marginTop:6,lineHeight:1.5}}>
+                💡 Régénérez le planning ASV après modification pour appliquer les contraintes.
+              </p>
+            </div>
+          )}
         </div>
       );
     }
