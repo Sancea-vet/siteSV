@@ -16,6 +16,7 @@
   </style>
   <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     body { background:#f8fafc; }
@@ -1210,6 +1211,12 @@ const generateAstreintes = useCallback(()=>{
           return r ? Q(r.endTime) : null;
         };
 
+        const getAsvLateStart = (asvId, d) => {
+          const pr = asvPersonalRules[asvId] || [];
+          const r = pr.find(r => r.type === 'late_start' && r.dow === getDowOfDay(d));
+          return r ? Q(r.startTime) : null;
+        };
+
         // ── Chevauchement ───────────────────────────────────────
         const overlaps = (s1,e1,s2,e2) => s1<e2 && e1>s2;
 
@@ -1469,16 +1476,29 @@ const generateAstreintes = useCallback(()=>{
             };
           });
 
-          // ── Appliquer règles early_end (fin anticipée) ──────────
+          // ── Appliquer règles early_end et late_start ────────────
           Object.keys(dayData).forEach(aid=>{
-            const earlyEnd = getAsvEarlyEnd(aid, d);
-            if(earlyEnd === null) return;
             const ad = dayData[aid];
             if(!ad || !ad.segments) return;
-            const capped = ad.segments
-              .map(seg => ({...seg, end: Math.min(seg.end, earlyEnd)}))
-              .filter(seg => seg.start < seg.end - 0.01);
-            if(capped.length > 0) dayData[aid] = {...ad, segments: capped};
+            let segs = ad.segments;
+
+            // Début tardif : décale le début des segments
+            const lateStart = getAsvLateStart(aid, d);
+            if(lateStart !== null){
+              segs = segs
+                .map(seg => ({...seg, start: Math.max(seg.start, lateStart)}))
+                .filter(seg => seg.start < seg.end - 0.01);
+            }
+
+            // Fin anticipée : tronque la fin des segments
+            const earlyEnd = getAsvEarlyEnd(aid, d);
+            if(earlyEnd !== null){
+              segs = segs
+                .map(seg => ({...seg, end: Math.min(seg.end, earlyEnd)}))
+                .filter(seg => seg.start < seg.end - 0.01);
+            }
+
+            if(segs.length > 0) dayData[aid] = {...ad, segments: segs};
             else delete dayData[aid];
           });
 
@@ -1693,6 +1713,150 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         URL.revokeObjectURL(url);
       },[planning,asvPlanning,vets,asvs,month,year]);
 
+      // ── Export ICS – Planning ASV ──────────────────────────────
+      const exportASVICS = useCallback(()=>{
+        const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}-`;
+        const fmtH=h=>{const hh=Math.floor(h),mm=Math.round((h-hh)*60);return`${hh}h${String(mm).padStart(2,'0')}`;};
+        const icsDateTime=(dateKey,h)=>{
+          const[y,mo,d]=dateKey.split('-');
+          const hh=Math.floor(h),mm=Math.round((h-hh)*60);
+          return`${y}${mo}${d}T${String(hh).padStart(2,'0')}${String(mm).padStart(2,'0')}00`;
+        };
+        const lines=[
+          'BEGIN:VCALENDAR','VERSION:2.0',
+          'PRODID:-//SanceaVet//Planning ASV//FR',
+          'CALSCALE:GREGORIAN',
+          `X-WR-CALNAME:Planning ASV – ${MOIS[month]} ${year}`,
+          `X-WR-CALDESC:Horaires ASV Sancéa Vet – ${MOIS[month]} ${year}`,
+        ];
+        let hasEv=false;
+        Object.keys(asvPlanning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(dateKey=>{
+          const dayData=asvPlanning[dateKey];
+          if(!dayData||Array.isArray(dayData)) return;
+          const[y,mo,d]=dateKey.split('-').map(Number);
+          const dayName=JS_FULL[new Date(y,mo-1,d).getDay()];
+          Object.entries(dayData).forEach(([aid,ad])=>{
+            if(!ad?.segments?.length) return;
+            const asv=asvs.find(a=>a.id===aid);
+            const name=asv?asv.name:aid;
+            const totalH=ad.segments.reduce((s,g)=>s+(g.end-g.start),0);
+            ad.segments.forEach((seg,i)=>{
+              hasEv=true;
+              lines.push(
+                'BEGIN:VEVENT',
+                `UID:${dateKey}-${aid}-s${i}@sanceavet-asv`,
+                `DTSTART:${icsDateTime(dateKey,seg.start)}`,
+                `DTEND:${icsDateTime(dateKey,seg.end)}`,
+                `SUMMARY:${name} \u2014 ${fmtH(seg.start)}\u2013${fmtH(seg.end)}`,
+                `DESCRIPTION:Sancéa Vet – ${dayName} ${d}/${mo}/${y}\\nTotal jour: ${totalH.toFixed(1).replace(/\.0$/,'')}h`,
+                'CATEGORIES:ASV',
+                'END:VEVENT'
+              );
+            });
+          });
+        });
+        if(!hasEv){alert('Aucun planning ASV à exporter pour ce mois.');return;}
+        lines.push('END:VCALENDAR');
+        const blob=new Blob([lines.join('\r\n')],{type:'text/calendar;charset=utf-8'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download=`planning-asv-${MOIS[month]}-${year}.ics`;a.click();
+        URL.revokeObjectURL(url);
+      },[asvPlanning,asvs,year,month]);
+
+      // ── Export XLSX – Planning ASV (une feuille par semaine) ───
+      const exportASVXLSX = useCallback(()=>{
+        const XL=window.XLSX;
+        if(!XL){alert('SheetJS non chargé – vérifiez votre connexion.');return;}
+        const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}-`;
+        const fmtH=h=>{const hh=Math.floor(h),mm=Math.round((h-hh)*60);return`${hh}h${String(mm).padStart(2,'0')}`;};
+
+        // Grouper les jours par numéro de semaine ISO
+        const weekMap={};
+        Object.keys(asvPlanning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(key=>{
+          const[y,mo,d]=key.split('-').map(Number);
+          const wn=isoWeek(y,mo-1,d);
+          if(!weekMap[wn]) weekMap[wn]=[];
+          weekMap[wn].push(key);
+        });
+        if(!Object.keys(weekMap).length){alert('Aucun planning ASV généré pour ce mois.');return;}
+
+        const wb=XL.utils.book_new();
+
+        Object.entries(weekMap).sort((a,b)=>+a[0]-+b[0]).forEach(([wnStr,dayKeys])=>{
+          const wn=+wnStr;
+          const[fy,fmo,fd]=dayKeys[0].split('-').map(Number);
+          const[,lmo,ld]=dayKeys[dayKeys.length-1].split('-').map(Number);
+
+          const aoa=[];
+
+          // ── Ligne 0 : titre de la semaine
+          aoa.push([`Planning ASV — Semaine ${wn} — du ${fd}/${fmo} au ${ld}/${lmo}/${fy}`]);
+
+          // ── Ligne 1 : en-têtes colonnes
+          aoa.push(['Jour / Date', ...asvs.map(a=>a.name), 'Présentes']);
+
+          // ── Lignes de données : un jour par ligne
+          const weekH=Object.fromEntries(asvs.map(a=>[a.id,0]));
+          dayKeys.forEach(key=>{
+            const[y,mo,d]=key.split('-').map(Number);
+            const dow=new Date(y,mo-1,d).getDay();
+            const dayLabel=`${JOURS[(dow+6)%7]} ${d}/${mo}`;
+            const row=[dayLabel];
+            let cnt=0;
+            asvs.forEach(asv=>{
+              const dayData=asvPlanning[key];
+              const ad=(!dayData||Array.isArray(dayData))?null:dayData[asv.id];
+              if(!ad?.segments?.length){
+                const pr=asvPersonalRules[asv.id]||[];
+                const off=pr.some(r=>r.type==='day_off'&&r.dow===dow);
+                row.push(off?'REPOS FIXE':'—');
+              } else {
+                const totalH=ad.segments.reduce((s,g)=>s+(g.end-g.start),0);
+                weekH[asv.id]+=totalH;
+                const segs=ad.segments.map(s=>`${fmtH(s.start)}-${fmtH(s.end)}`).join(' / ');
+                row.push(`${segs}  (${totalH.toFixed(1).replace(/\.0$/,'')}h)`);
+                cnt++;
+              }
+            });
+            row.push(cnt);
+            aoa.push(row);
+          });
+
+          // ── Ligne vide
+          aoa.push([]);
+
+          // ── Ligne totaux semaine
+          const totRow=['∑ Semaine'];
+          let totAll=0;
+          asvs.forEach(a=>{
+            const h=weekH[a.id];
+            totAll+=h;
+            totRow.push(h>0?`${h.toFixed(1).replace(/\.0$/,'')}h`:'—');
+          });
+          totRow.push(`${totAll.toFixed(1).replace(/\.0$/,'')}h total`);
+          aoa.push(totRow);
+
+          // ── Construire la feuille
+          const ws=XL.utils.aoa_to_sheet(aoa);
+
+          // Largeurs colonnes
+          ws['!cols']=[
+            {wch:16},                        // Jour
+            ...asvs.map(()=>({wch:34})),     // Colonne par ASV
+            {wch:12},                        // Présentes
+          ];
+
+          // Fusion titre sur toute la largeur
+          ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:asvs.length+1}}];
+
+          const sheetName=`S${wn} (${fd}${fmo===lmo?'':`/${fmo}`}-${ld}/${lmo})`;
+          XL.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
+        });
+
+        XL.writeFile(wb,`planning-asv-${MOIS[month]}-${year}.xlsx`);
+      },[asvPlanning,asvs,asvPersonalRules,year,month,isoWeek]);
+
       const TABS=[
         {id:'planning',label:'Planning',icon:'📅'},
         {id:'asv',     label:'Planning ASV',icon:'👩‍⚕️'},
@@ -1779,6 +1943,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               asvPersonalRules={asvPersonalRules} setAsvPersonalRules={setAsvPersonalRules}
               holidays={holidays}
               onGenerate={generateASVPlanning}
+              onExportASVICS={exportASVICS}
+              onExportASVXLSX={exportASVXLSX}
               isoWeek={isoWeek} weekParity={weekParity}/>
           )}
           {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays}/>}
@@ -1794,6 +1960,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               gclientId={gclientId} setGclientId={setGclientId}
               calId={calId} setCalId={setCalId} onExportICS={exportICS}
               onExportCSV={exportCSV}
+              onExportASVICS={exportASVICS}
+              onExportASVXLSX={exportASVXLSX}
+              asvPlanning={asvPlanning}
               astreintes={astreintes}/>
           )}
 
@@ -2475,7 +2644,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       asvPlanning,setAsvPlanning,
       asvUnavailRanges,setAsvUnavailRanges,
       asvPersonalRules,setAsvPersonalRules,
-      holidays,onGenerate,isoWeek,weekParity}){
+      holidays,onGenerate,onExportASVICS,onExportASVXLSX,
+      isoWeek,weekParity}){
 
       const [section,setSection]=useState('planning');
       const [editKey,setEditKey]=useState(null); // dateKey du jour édité
@@ -2557,11 +2727,23 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               {hasVetPlanning&&(
                 <button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>
               )}
-              {hasPlanning&&(
+              {hasPlanning&&(<>
+                <button onClick={onExportASVICS}
+                  title="Export .ics — compatible Google Calendar, Outlook, Apple Calendar"
+                  className="btn-outline"
+                  style={{borderColor:'#0d9488',color:'#0d9488',display:'flex',alignItems:'center',gap:6,fontSize:13}}>
+                  📅 Export&nbsp;<strong>.ics</strong>
+                </button>
+                <button onClick={onExportASVXLSX}
+                  title="Export Excel — une feuille par semaine, horaires lisibles"
+                  className="btn-outline"
+                  style={{borderColor:'#16a34a',color:'#16a34a',display:'flex',alignItems:'center',gap:6,fontSize:13}}>
+                  📊 Export&nbsp;<strong>Excel</strong>
+                </button>
                 <div style={{fontSize:12,color:'#6b7280',alignSelf:'center'}}>
                   💡 Cliquez sur un jour pour éditer manuellement les horaires
                 </div>
-              )}
+              </>)}
             </div>
 
             {/* Indisponibilités */}
@@ -3244,7 +3426,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               👤 Contraintes personnelles par ASV
             </h4>
             <p style={{fontSize:12,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
-              Jour off fixe hebdomadaire négocié, ou heure de fin anticipée un jour précis de la semaine.<br/>
+              Jour off fixe hebdomadaire négocié, heure de début décalée ou heure de fin anticipée un jour précis de la semaine.<br/>
               Ces règles sont respectées lors de la génération automatique.
             </p>
             {asvs.length===0 && (
@@ -3270,20 +3452,28 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const [rType,  setRType]   = useState('day_off');
       const [dow,    setDow]     = useState(1);
       const [endH,   setEndH]    = useState(17);
+      const [startH, setStartH]  = useState(9);
 
       const rules = asvPersonalRules[asv.id] || [];
 
       const JOURS_LONG = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
 
-      // Options d'heure de fin (11h00 → 19h00 par demi-heure)
+      // Options d'heure de début tardif (8h30 → 14h00 par demi-heure)
+      const startOpts = [];
+      for(let h=8.5; h<=14; h+=0.5) startOpts.push(h);
+
+      // Options d'heure de fin anticipée (11h00 → 19h00 par demi-heure)
       const endOpts = [];
       for(let h=11; h<=19; h+=0.5) endOpts.push(h);
+
       const fmtT = h => { const hh=Math.floor(h), mm=Math.round((h-hh)*60); return `${hh}h${String(mm).padStart(2,'0')}`; };
 
       const addRule = () => {
-        // Un seul type de règle par jour par ASV
         if(rules.some(r => r.dow === +dow && r.type === rType)) return;
-        const newRule = {id: uid(), type: rType, dow: +dow, ...(rType==='early_end' ? {endTime: +endH} : {})};
+        const extra = rType==='early_end'  ? {endTime:   +endH}
+                    : rType==='late_start' ? {startTime: +startH}
+                    : {};
+        const newRule = {id: uid(), type: rType, dow: +dow, ...extra};
         setAsvPersonalRules(prev => ({...prev, [asv.id]: [...(prev[asv.id]||[]), newRule]}));
       };
       const removeRule = id => setAsvPersonalRules(prev => ({...prev, [asv.id]: (prev[asv.id]||[]).filter(r=>r.id!==id)}));
@@ -3329,6 +3519,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                           <span style={{marginLeft:8,fontSize:11,color:'#9ca3af'}}>ne travaille pas ce jour</span>
                         </span>
                       )}
+                      {r.type==='late_start'&&(
+                        <span style={{flex:1}}>
+                          🌅 <strong>Début à {fmtT(r.startTime)}</strong> — <span style={{color:asv.color,fontWeight:600}}>{JOURS_LONG[r.dow]}</span>
+                          <span style={{marginLeft:8,fontSize:11,color:'#9ca3af'}}>prise de service décalée</span>
+                        </span>
+                      )}
                       {r.type==='early_end'&&(
                         <span style={{flex:1}}>
                           ⏰ <strong>Fin à {fmtT(r.endTime)}</strong> — <span style={{color:asv.color,fontWeight:600}}>{JOURS_LONG[r.dow]}</span>
@@ -3349,6 +3545,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   <span className="g-label">Type de règle</span>
                   <select value={rType} onChange={e=>setRType(e.target.value)} className="g-input">
                     <option value="day_off">🚫 Jour off fixe</option>
+                    <option value="late_start">🌅 Début tardif</option>
                     <option value="early_end">⏰ Fin anticipée</option>
                   </select>
                 </div>
@@ -3360,9 +3557,17 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     ))}
                   </select>
                 </div>
+                {rType==='late_start'&&(
+                  <div>
+                    <span className="g-label">Commence à</span>
+                    <select value={startH} onChange={e=>setStartH(+e.target.value)} className="g-input">
+                      {startOpts.map(h=><option key={h} value={h}>{fmtT(h)}</option>)}
+                    </select>
+                  </div>
+                )}
                 {rType==='early_end'&&(
                   <div>
-                    <span className="g-label">Heure de fin</span>
+                    <span className="g-label">Finit à</span>
                     <select value={endH} onChange={e=>setEndH(+e.target.value)} className="g-input">
                       {endOpts.map(h=><option key={h} value={h}>{fmtT(h)}</option>)}
                     </select>
@@ -3786,10 +3991,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Sync ───────────────────────────────────────────
-    function SyncTab({validated,totalAlerts,planning,vets,year,month,gclientId,setGclientId,calId,setCalId,onExportICS,onExportCSV,astreintes}){
+    function SyncTab({validated,totalAlerts,planning,vets,year,month,gclientId,setGclientId,calId,setCalId,onExportICS,onExportCSV,onExportASVICS,onExportASVXLSX,asvPlanning,astreintes}){
       const [copied, setCopied] = useState(false);
       const planDays=Object.keys(planning).filter(k=>planning[k]).length;
       const hasP=planDays>0;
+      const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}-`;
+      const hasASVP=asvPlanning&&Object.keys(asvPlanning).some(k=>k.startsWith(monthPrefix));
       const s1='<'+'script src="https://accounts.google.com/gsi/client"><'+'/script>';
       const s2='<'+'script src="https://apis.google.com/js/api.js"><'+'/script>';
       const code=s1+'\n'+s2+'\n\nconst GC_CONFIG = {\n  clientId:   "'+(gclientId||'VOTRE_CLIENT_ID.apps.googleusercontent.com')+'",\n  calendarId: "'+(calId||'primary')+'",\n};\n\nfunction connectGoogle() {\n  google.accounts.oauth2.initTokenClient({\n    client_id: GC_CONFIG.clientId,\n    scope: "https://www.googleapis.com/auth/calendar.events",\n    callback: token => { gapi.client.setToken(token); syncPlanning(); },\n  }).requestAccessToken();\n}\n\nasync function syncPlanning() {\n  await gapi.client.load("calendar","v3");\n  for (const [date, dp] of Object.entries(planningData)) {\n    for (const slot of ["matin","aprem"]) {\n      const s = dp[slot]; if (!s||!s.vets.length) continue;\n      const names  = s.vets.map(id => vetsById[id].name).join(", ");\n      const emails = s.vets.map(id => vetsById[id].email).filter(Boolean);\n      await gapi.client.calendar.events.insert({\n        calendarId: GC_CONFIG.calendarId,\n        resource: {\n          summary:   (slot==="matin"?"Matin ":"Après-midi ") + horaires[s.horaire] + " – " + names,\n          start:     { date },\n          end:       { date },\n          attendees: emails.map(email => ({ email })),\n        },\n      });\n    }\n  }\n}';
@@ -3805,7 +4012,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             {hasP&&validated&&totalAlerts===0&&'✓ Planning validé — '+planDays+' jours planifiés, prêt à synchroniser.'}
           </div>
           <div className="g-card" style={{marginBottom:20}}>
-            <h3 style={{fontSize:15,fontWeight:600,marginBottom:6,color:'#1f2937'}}>📥 Export .ics</h3>
+            <h3 style={{fontSize:15,fontWeight:600,marginBottom:6,color:'#1f2937'}}>📥 Export .ics — Vétos</h3>
             <p style={{fontSize:13,color:'#6b7280',marginBottom:14}}>
               2 événements par jour (matin + après-midi) avec les horaires. Compatible Google Calendar, Outlook, Apple Calendar.
             </p>
@@ -3818,6 +4025,40 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               </button>
             </div>
           </div>
+
+          {/* ── Export ASV ─────────────────────────────────────── */}
+          <div className="g-card" style={{marginBottom:20,border:'1.5px solid #99f6e4'}}>
+            <h3 style={{fontSize:15,fontWeight:600,marginBottom:6,color:'#0d9488'}}>👩‍⚕️ Export planning ASV</h3>
+            <p style={{fontSize:13,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
+              Exportez le planning ASV pour le partager sur l'adresse commune ou l'afficher en salle de repos.<br/>
+              <strong>.ics</strong> — à importer ou s'abonner dans Google Calendar / Outlook / Apple Calendar.<br/>
+              <strong>Excel</strong> — une feuille par semaine, horaires lisibles (8h00-12h30 / 13h30-19h00).
+            </p>
+            {!hasASVP&&(
+              <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,
+                padding:'10px 14px',fontSize:13,color:'#92400e',marginBottom:12}}>
+                ⚠️ Aucun planning ASV généré pour {MOIS[month]} {year} — rendez-vous dans l'onglet 👩‍⚕️ Planning ASV.
+              </div>
+            )}
+            <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
+              <button onClick={onExportASVICS} disabled={!hasASVP} className="btn-teal"
+                style={{display:'flex',alignItems:'center',gap:7}}>
+                📅 Télécharger planning-asv-{MOIS[month]}-{year}.ics
+              </button>
+              <button onClick={onExportASVXLSX} disabled={!hasASVP}
+                className="btn-outline"
+                style={{borderColor:'#16a34a',color:'#16a34a',display:'flex',alignItems:'center',gap:7}}>
+                📊 Télécharger planning-asv-{MOIS[month]}-{year}.xlsx
+              </button>
+            </div>
+            {hasASVP&&(
+              <p style={{fontSize:11,color:'#9ca3af',marginTop:10,lineHeight:1.6}}>
+                💡 Pour partager via Google Calendar : importez le <code style={{background:'#f1f5f9',padding:'1px 4px',borderRadius:3}}>.ics</code> dans un agenda partagé, 
+                ou activez l'abonnement URL pour que l'équipe ASV reçoive les mises à jour automatiquement.
+              </p>
+            )}
+          </div>
+
           <div className="g-card" style={{marginBottom:20}}>
             <h3 style={{fontSize:15,fontWeight:600,marginBottom:14,color:'#1f2937'}}>🔗 Google Calendar API</h3>
             <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
