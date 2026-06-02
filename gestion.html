@@ -223,14 +223,14 @@
     const MOIS    = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
     const PALETTE = ['#0d9488','#f59e0b','#3b82f6','#8b5cf6','#ec4899','#0891b2','#f97316','#16a34a','#be185d','#7c3aed'];
 
-    const HORAIRES = {
+    let HORAIRES = {
  matin_A: { id:'matin_A', label:'8h30 – 12h00', slot:'matin', short:'8h30-12h00' },
  matin_B: { id:'matin_B', label:'9h30 – 13h30', slot:'matin', short:'9h30-13h30' },
  aprem_A: { id:'aprem_A', label:'13h30 – 17h00', slot:'aprem', short:'13h30-17h00' },
  aprem_B: { id:'aprem_B', label:'15h00 – 19h00',slot:'aprem', short:'15h00-19h00' },
 };
     // Heure de fin par horaire (pour la règle "celui qui finit le tard est d'astreinte")
-    const HORAIRE_END_TIME = { matin_A: 12, matin_B: 13.5, aprem_A: 17, aprem_B: 19 };
+    let HORAIRE_END_TIME = { matin_A: 12, matin_B: 13.5, aprem_A: 17, aprem_B: 19 };
 
     // ─── Helpers ───────────────────────────────────────────────
     const uid         = () => Math.random().toString(36).slice(2,8);
@@ -361,13 +361,29 @@
     ];
     const DEFAULT_ASV_RULES = { hoursPerWeek: 35, lunchBreak: 1 };
 
-    // ─── Utilitaires horaires ASV ──────────────────────────────
-    const HORAIRE_TIMES = {
+    const DEFAULT_HORAIRE_TIMES = {
       matin_A: {start:8.5,  end:12.0},
       matin_B: {start:9.5,  end:13.5},
       aprem_A: {start:13.5, end:17.0},
       aprem_B: {start:15.0, end:19.0},
     };
+    let HORAIRE_TIMES = {
+      matin_A: {start:8.5,  end:12.0},
+      matin_B: {start:9.5,  end:13.5},
+      aprem_A: {start:13.5, end:17.0},
+      aprem_B: {start:15.0, end:19.0},
+    };
+    // Synchronise les objets globaux mutables quand les horaires changent
+    function syncHorairesToGlobals(ht) {
+      const fmtHG = h => { const hrs=Math.floor(h), mins=Math.round((h-hrs)*60); return `${hrs}h${mins.toString().padStart(2,'0')}`; };
+      ['matin_A','matin_B','aprem_A','aprem_B'].forEach(id => {
+        const {start, end} = ht[id];
+        HORAIRE_TIMES[id] = {start, end};
+        HORAIRE_END_TIME[id] = end;
+        HORAIRES[id].label = `${fmtHG(start)} – ${fmtHG(end)}`;
+        HORAIRES[id].short = `${fmtHG(start)}-${fmtHG(end)}`;
+      });
+    }
     const formatHTime = (h) => {
       const hrs=Math.floor(h), mins=Math.round((h-hrs)*60);
       return `${hrs}h${mins.toString().padStart(2,'0')}`;
@@ -392,6 +408,10 @@
       const [asvPlanning,setAsvPlanning]=useState({});
       const [asvUnavailRanges,setAsvUnavailRanges]=useState([]);
       const [asvPersonalRules,setAsvPersonalRules]=useState({});
+      const [horaireTimes,setHoraireTimes]=useState(DEFAULT_HORAIRE_TIMES);
+
+      // ── Synchronisation des globals horaires à chaque rendu ────
+      syncHorairesToGlobals(horaireTimes);
 
       // ── Migration : ancien format tableau → nouveau format objet ─
       useEffect(()=>{
@@ -490,6 +510,7 @@
             if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
             if(d.asvUnavailRanges) setAsvUnavailRanges(d.asvUnavailRanges);
             if(d.asvPersonalRules) setAsvPersonalRules(d.asvPersonalRules);
+            if(d.horaireTimes) { setHoraireTimes(d.horaireTimes); syncHorairesToGlobals(d.horaireTimes); }
             if(d.nav)        { setYear(d.nav.year); setMonth(d.nav.month); }
             if(d.gclientId)  setGclientId(d.gclientId);
             if(d.calId)      setCalId(d.calId);
@@ -524,6 +545,7 @@
               asvPlanning: data.asvPlanning,
               asvUnavailRanges: data.asvUnavailRanges,
               asvPersonalRules: data.asvPersonalRules,
+              horaireTimes: data.horaireTimes,
               nav: { year: data.year, month: data.month },
               gclientId: data.gclientId,
               calId: data.calId,
@@ -538,18 +560,18 @@
 
       useEffect(()=>{
         if(loaded && apiReady)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,year,month,gclientId,calId,loaded,apiReady});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,year,month,gclientId,calId,loaded,apiReady]);
+          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,loaded,apiReady});
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,loaded,apiReady]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
-        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,gclientId,calId};
+        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId};
         const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
         URL.revokeObjectURL(url);
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,gclientId,calId]);
+      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId]);
 
       const importJSON = useCallback(()=>{
         const input = document.createElement('input');
@@ -573,6 +595,7 @@
               if(d.asvPlanning)setAsvPlanning(d.asvPlanning);
               if(d.asvUnavailRanges) setAsvUnavailRanges(d.asvUnavailRanges);
               if(d.asvPersonalRules) setAsvPersonalRules(d.asvPersonalRules);
+              if(d.horaireTimes) { setHoraireTimes(d.horaireTimes); syncHorairesToGlobals(d.horaireTimes); }
               if(d.gclientId)  setGclientId(d.gclientId);
               if(d.calId)      setCalId(d.calId);
               alert('✅ Import réussi !');
@@ -824,8 +847,8 @@
  // ─────────────────────────────────────────────────────────────
 
  const workLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0}]));
- const END = { matin_A: 12, matin_B: 13.5, aprem_A: 17, aprem_B: 19 };
- const START = { matin_A: 8.5, matin_B: 9.5, aprem_A: 13.5, aprem_B: 15 };
+ const END = Object.fromEntries(Object.keys(HORAIRE_TIMES).map(id=>[id, HORAIRE_TIMES[id].end]));
+ const START = Object.fromEntries(Object.keys(HORAIRE_TIMES).map(id=>[id, HORAIRE_TIMES[id].start]));
  const breakOK = (mH, aH) => (START[aH]-END[mH]) >= 1.5;
 
  for(let d=1; d<=numDays; d++){
@@ -1854,7 +1877,20 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           XL.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
         });
 
-        XL.writeFile(wb,`planning-asv-${MOIS[month]}-${year}.xlsx`);
+        try {
+          const wbout = XL.write(wb, {bookType:'xlsx', type:'array'});
+          const blob = new Blob([wbout], {type:'application/octet-stream'});
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `planning-asv-${MOIS[month]}-${year}.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 200);
+        } catch(e) {
+          console.error('Erreur export XLSX:', e);
+          alert('❌ Erreur lors de l\'export XLSX : ' + e.message);
+        }
       },[asvPlanning,asvs,asvPersonalRules,year,month,isoWeek]);
 
       const TABS=[
@@ -1947,7 +1983,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               onExportASVXLSX={exportASVXLSX}
               isoWeek={isoWeek} weekParity={weekParity}/>
           )}
-          {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays}/>}
+          {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays} horaireTimes={horaireTimes} setHoraireTimes={setHoraireTimes}/>}
           {tab==='stats'&&(
             <StatsTab vets={vets} yearlyData={yearlyData} currentYear={year}
               currentMonth={month} currentPlanning={planning} validated={validated}
@@ -3712,7 +3748,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Règles ─────────────────────────────────────────
-    function ReglesTab({rules,setRules,vets,openDays,setOpenDays}){
+    function ReglesTab({rules,setRules,vets,openDays,setOpenDays,horaireTimes,setHoraireTimes}){
       const [rType,        setRType]        = useState('min_per_slot');
       const [slot,         setSlot]         = useState('matin');
       const [dType,        setDType]        = useState('weekday');
@@ -3802,6 +3838,87 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   className={'day-toggle '+(openDays[i]?'on':'off')}>{j}</button>
               ))}
             </div>
+          </div>
+
+          {/* ── Horaires des créneaux ── */}
+          <div className="g-card" style={{marginBottom:16}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:4,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>
+              ⏰ Horaires des créneaux
+            </h3>
+            <p style={{fontSize:12,color:'#9ca3af',marginBottom:14}}>
+              Modifiez les heures de début et fin de chaque créneau. La logique de génération du planning reste inchangée.
+            </p>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:12}}>
+              {[
+                {id:'matin_A', label:'🌅 Matin A', color:'#f59e0b'},
+                {id:'matin_B', label:'🌄 Matin B', color:'#0891b2'},
+                {id:'aprem_A', label:'🌇 Après-midi A', color:'#8b5cf6'},
+                {id:'aprem_B', label:'🌆 Après-midi B', color:'#ec4899'},
+              ].map(({id, label, color})=>{
+                const ht = horaireTimes[id];
+                const toTime = h => `${String(Math.floor(h)).padStart(2,'0')}:${String(Math.round((h%1)*60)).padStart(2,'0')}`;
+                const toDecimal = s => { const [h,m]=s.split(':').map(Number); return h+m/60; };
+                const dur = ht.end - ht.start;
+                const slot = id.startsWith('matin') ? 'matin' : 'aprem';
+                const defaultHt = DEFAULT_HORAIRE_TIMES[id];
+                const isModified = ht.start !== defaultHt.start || ht.end !== defaultHt.end;
+                return (
+                  <div key={id} style={{background:'#fafafa',border:'1.5px solid #e2e8f0',borderRadius:12,
+                    padding:'12px 14px',borderLeft:`4px solid ${color}`}}>
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+                      <span style={{fontSize:12,fontWeight:700,color}}>{label}</span>
+                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                        <span style={{fontSize:10,background:slot==='matin'?'#fef3c7':'#ede9fe',
+                          color:slot==='matin'?'#92400e':'#5b21b6',borderRadius:6,padding:'1px 6px',fontWeight:600}}>
+                          {slot==='matin'?'Matin':'Après-midi'}
+                        </span>
+                        {isModified&&(
+                          <button onClick={()=>setHoraireTimes(prev=>({...prev,[id]:DEFAULT_HORAIRE_TIMES[id]}))}
+                            style={{fontSize:10,background:'#fef2f2',color:'#ef4444',border:'1px solid #fecaca',
+                              borderRadius:6,padding:'1px 7px',cursor:'pointer',fontFamily:"'Inter',sans-serif"}}>
+                            ↺ Reset
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <div style={{flex:1}}>
+                        <span className="g-label">Début</span>
+                        <input type="time" step="900" value={toTime(ht.start)}
+                          onChange={e=>{
+                            const v = toDecimal(e.target.value);
+                            if(isNaN(v) || v >= ht.end) return;
+                            setHoraireTimes(prev=>({...prev,[id]:{...prev[id],start:v}}));
+                          }}
+                          className="g-input" style={{width:'100%'}}/>
+                      </div>
+                      <div style={{paddingTop:18,color:'#9ca3af',fontWeight:700,fontSize:16}}>→</div>
+                      <div style={{flex:1}}>
+                        <span className="g-label">Fin</span>
+                        <input type="time" step="900" value={toTime(ht.end)}
+                          onChange={e=>{
+                            const v = toDecimal(e.target.value);
+                            if(isNaN(v) || v <= ht.start) return;
+                            setHoraireTimes(prev=>({...prev,[id]:{...prev[id],end:v}}));
+                          }}
+                          className="g-input" style={{width:'100%'}}/>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11,color:'#6b7280',marginTop:8,textAlign:'center',
+                      background:'#fff',borderRadius:6,padding:'4px 8px',border:'1px solid #f1f5f9'}}>
+                      <strong style={{color}}>{formatHTime(ht.start)}</strong>
+                      <span style={{margin:'0 6px',color:'#d1d5db'}}>→</span>
+                      <strong style={{color}}>{formatHTime(ht.end)}</strong>
+                      <span style={{marginLeft:8,color:'#9ca3af'}}>({dur.toFixed(2).replace(/\.?0+$/,'')}h)</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <button onClick={()=>setHoraireTimes(DEFAULT_HORAIRE_TIMES)}
+              className="btn-ghost" style={{marginTop:12,fontSize:12,color:'#6b7280'}}>
+              ↺ Réinitialiser tous les horaires par défaut
+            </button>
           </div>
 
           {/* Règle fixe : créneaux obligatoires */}
