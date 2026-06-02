@@ -847,9 +847,9 @@
  // ─────────────────────────────────────────────────────────────
 
  const workLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0}]));
- const END = Object.fromEntries(Object.keys(HORAIRE_TIMES).map(id=>[id, HORAIRE_TIMES[id].end]));
- const START = Object.fromEntries(Object.keys(HORAIRE_TIMES).map(id=>[id, HORAIRE_TIMES[id].start]));
- const breakOK = (mH, aH) => (START[aH]-END[mH]) >= 1.5;
+ // Règle A/B : un véto fait soit matin_A+aprem_A, soit matin_B+aprem_B (ou une seule demi-journée)
+ // Helper : ensemble des vétérinaires déjà affectés à un horaire donné
+ const vetsIn = (arr, hid) => new Set(arr.find(s=>s.horaire===hid)?.vets || []);
 
  for(let d=1; d<=numDays; d++){
  const key = dayInfo[d].key;
@@ -902,13 +902,18 @@
  if(tgt && !tgt.vets.includes(astrVet) && !alreadyInAprem) tgt.vets.push(astrVet);
  }
 
- const ensureOne = (arr, hid, slotName, bias=null) => {
+ // excluded : vétérinaires interdits sur ce slot (contrainte A/B)
+ const ensureOne = (arr, hid, slotName, bias=null, excluded=new Set()) => {
  const tgt = arr.find(s=>s.horaire===hid);
  if(!tgt || tgt.vets.length) return;
  const already = new Set(arr.flatMap(s=>s.vets||[]));
- let cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid));
+ // Priorité : respecter la contrainte A/B ET ne pas doubler le même slot
+ let cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid) && !excluded.has(vid));
+ // Fallback 1 : on relâche l'exclusion A/B si aucun candidat valide
+ if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid));
+ // Fallback 2 : on relâche aussi le filtre "déjà présent dans le slot"
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName));
- const chosen = pickVet(cands, (bias && !already.has(bias)) ? bias : null);
+ const chosen = pickVet(cands, (bias && !already.has(bias) && !excluded.has(bias)) ? bias : null);
  if(chosen) tgt.vets.push(chosen);
  };
  const applyFixedVetRule = (rule) => {
@@ -921,11 +926,11 @@
    if(!target.vets.includes(rule.vetId)) target.vets.push(rule.vetId);
  };
 
- // couverture continue
- ensureOne(day.matin,'matin_A','matin');
- ensureOne(day.matin,'matin_B','matin');
- ensureOne(day.aprem,'aprem_A','aprem');
- if(!isSat) ensureOne(day.aprem,'aprem_B','aprem', astrVet);
+ // couverture continue — contrainte A/B : matin_A↔aprem_A exclusivement, matin_B↔aprem_B exclusivement
+ ensureOne(day.matin,'matin_A','matin', null,     vetsIn(day.aprem,'aprem_B'));
+ ensureOne(day.matin,'matin_B','matin', null,     vetsIn(day.aprem,'aprem_A'));
+ ensureOne(day.aprem,'aprem_A','aprem', null,     vetsIn(day.matin,'matin_B'));
+ if(!isSat) ensureOne(day.aprem,'aprem_B','aprem', astrVet, vetsIn(day.matin,'matin_A'));
  fixedVetRules.forEach(applyFixedVetRule);
 
  // minima globaux
@@ -937,7 +942,10 @@
  const aprAssigned = () => [...new Set(day.aprem.flatMap(s=>s.vets))];
 
  while(matAssigned().length < needMat){
- const cands = allVids.filter(vid=>canWork(vid,'matin') && !matAssigned().includes(vid));
+ // matin_A est le slot par défaut pour les minima → exclure les vétérinaires en aprem_B (règle A/B)
+ const inApremB = vetsIn(day.aprem,'aprem_B');
+ let cands = allVids.filter(vid=>canWork(vid,'matin') && !matAssigned().includes(vid) && !inApremB.has(vid));
+ if(!cands.length) cands = allVids.filter(vid=>canWork(vid,'matin') && !matAssigned().includes(vid));
  if(!cands.length) break;
  const chosen = pickVet(cands);
  const tgt = day.matin.find(s=>s.horaire==='matin_A') || day.matin[0];
@@ -946,7 +954,10 @@
  }
 
  while(aprAssigned().length < needApr){
- const cands = allVids.filter(vid=>canWork(vid,'aprem') && !aprAssigned().includes(vid));
+ // aprem_A est le slot par défaut pour les minima → exclure les vétérinaires en matin_B (règle A/B)
+ const inMatinB = vetsIn(day.matin,'matin_B');
+ let cands = allVids.filter(vid=>canWork(vid,'aprem') && !aprAssigned().includes(vid) && !inMatinB.has(vid));
+ if(!cands.length) cands = allVids.filter(vid=>canWork(vid,'aprem') && !aprAssigned().includes(vid));
  if(!cands.length) break;
  const chosen = pickVet(cands);
  const tgt = day.aprem.find(s=>s.horaire==='aprem_A') || day.aprem[0];
@@ -954,25 +965,25 @@
  else break;
  }
 
- // réduire demi-journées : compléter en journée si pause >= 1h30
+ // compléter en journée complète — règle A/B stricte : matin_A↔aprem_A, matin_B↔aprem_B
  matAssigned().forEach(vid=>{
  if(aprAssigned().includes(vid)) return;
  if(!canWork(vid,'aprem')) return;
  const mH = day.matin.find(s=>s.vets.includes(vid))?.horaire || 'matin_A';
- const pref = (!isSat && breakOK(mH,'aprem_B')) ? 'aprem_B' : 'aprem_A';
- const tgt = day.aprem.find(s=>s.horaire===pref) || day.aprem[0];
- // FIX: vérifier que la pause repas (>= 1h30) est bien respectée avant d'assigner
- if(tgt && !tgt.vets.includes(vid) && !aprAssigned().includes(vid) && breakOK(mH, tgt.horaire)) tgt.vets.push(vid);
+ // matin_A → aprem_A uniquement ; matin_B → aprem_B uniquement
+ const requiredAprem = mH === 'matin_A' ? 'aprem_A' : 'aprem_B';
+ const tgt = day.aprem.find(s=>s.horaire===requiredAprem);
+ if(tgt && !tgt.vets.includes(vid) && !aprAssigned().includes(vid)) tgt.vets.push(vid);
  });
 
  aprAssigned().forEach(vid=>{
  if(matAssigned().includes(vid)) return;
  if(!canWork(vid,'matin')) return;
  const aH = day.aprem.find(s=>s.vets.includes(vid))?.horaire || 'aprem_A';
- const pref = breakOK('matin_B', aH) ? 'matin_B' : 'matin_A';
- const tgt = day.matin.find(s=>s.horaire===pref) || day.matin[0];
- // FIX: vérifier que la pause repas (>= 1h30) est bien respectée avant d'assigner
- if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid) && breakOK(tgt.horaire, aH)) tgt.vets.push(vid);
+ // aprem_A → matin_A uniquement ; aprem_B → matin_B uniquement
+ const requiredMatin = aH === 'aprem_A' ? 'matin_A' : 'matin_B';
+ const tgt = day.matin.find(s=>s.horaire===requiredMatin);
+ if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid)) tgt.vets.push(vid);
  });
 
  const finalVids = [...new Set([...matAssigned(), ...aprAssigned()])];
