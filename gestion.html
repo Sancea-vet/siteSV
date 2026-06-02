@@ -1873,8 +1873,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           // Fusion titre sur toute la largeur
           ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:asvs.length+1}}];
 
-          const sheetName=`S${wn} (${fd}${fmo===lmo?'':`/${fmo}`}-${ld}/${lmo})`;
-          XL.utils.book_append_sheet(wb,ws,sheetName.slice(0,31));
+          const rawSheetName=`S${wn} (${fd}${fmo===lmo?'':`-${fmo}`}-${ld}-${lmo})`;
+          const sheetName=rawSheetName.replace(/[:\\/?\*\[\]]/g,'.').slice(0,31);
+          XL.utils.book_append_sheet(wb,ws,sheetName);
         });
 
         try {
