@@ -834,6 +834,13 @@
  if(nextBlocVet && vid===nextBlocVet) s += 120;
  // règle fixe : forte pénalité si on a dû garder un interdit (fallback)
  if(forbiddenDay(vid, d)) s += 1200;
+ // Préférence : éviter les vétos ayant une règle fixe finissant à 17h (aprem_A)
+ // Pénalité modérée → ils restent éligibles si le déséquilibre l'exige
+ const hasFixedApremA = rules.some(r=>
+   r.type==='vet_slot_rule' && r.vetId===vid && r.horaire==='aprem_A' &&
+   matchRuleScope(r, year, month, d)
+ );
+ if(hasFixedApremA) s += 80;
  return s;
  };
  elig.sort((a,b)=>score(a)-score(b));
@@ -893,14 +900,6 @@
  return list[0] || null;
  };
 
- // astreinte = fermeture (si possible)
- if(astrVet && canWork(astrVet,'aprem')){
- const closeH = isSat ? 'aprem_A' : 'aprem_B';
- const tgt = day.aprem.find(s=>s.horaire===closeH);
- const alreadyInAprem = day.aprem.some(s=>s.vets.includes(astrVet));
- if(tgt && !tgt.vets.includes(astrVet) && !alreadyInAprem) tgt.vets.push(astrVet);
- }
-
  // excluded : vétérinaires interdits sur ce slot (contrainte A/B)
  const ensureOne = (arr, hid, slotName, bias=null, excluded=new Set()) => {
  const tgt = arr.find(s=>s.horaire===hid);
@@ -922,16 +921,39 @@
    if(!target.vets.includes(rule.vetId)) target.vets.push(rule.vetId);
  };
 
- // couverture continue — contrainte A/B : matin_A↔aprem_A exclusivement, matin_B↔aprem_B exclusivement
- ensureOne(day.matin,'matin_A','matin', null,     vetsIn(day.aprem,'aprem_B'));
- ensureOne(day.matin,'matin_B','matin', null,     vetsIn(day.aprem,'aprem_A'));
- ensureOne(day.aprem,'aprem_A','aprem', null,     vetsIn(day.matin,'matin_B'));
- if(!isSat) ensureOne(day.aprem,'aprem_B','aprem', astrVet, vetsIn(day.matin,'matin_A'));
+ // ÉTAPE 1 : Règles fixes en premier (vet_slot_rule)
  fixedVetRules.forEach(applyFixedVetRule);
 
- // minima globaux
- const minMatRule = rules.find(r=>r.type==='min_per_slot' && r.slot==='matin' && parityMatch(r.weekParity, year, month, d) && ((r.dayType==='weekday' && !we) || (r.dayType==='weekend' && we) || r.dayType==='all'));
- const minAprRule = rules.find(r=>r.type==='min_per_slot' && r.slot==='aprem' && parityMatch(r.weekParity, year, month, d) && ((r.dayType==='weekday' && !we) || (r.dayType==='weekend' && we) || r.dayType==='all'));
+ // ÉTAPE 2 : Astreinte → fermeture préférentielle (pas obligatoire si règle fixe 17h)
+ // Si le véto d'astreinte a une règle fixe qui le place sur aprem_A (fin 17h),
+ // on respecte cette règle et l'astreinte est maintenue à 17h (pas déplacé sur aprem_B).
+ if(astrVet && canWork(astrVet,'aprem')){
+   if(isSat){
+     const alreadyInAprem = day.aprem.some(s=>s.vets.includes(astrVet));
+     const tgt = day.aprem.find(s=>s.horaire==='aprem_A');
+     if(tgt && !tgt.vets.includes(astrVet) && !alreadyInAprem) tgt.vets.push(astrVet);
+   } else {
+     const hasFixedApremA = day.aprem.some(s=>s.horaire==='aprem_A' && s.vets.includes(astrVet));
+     const alreadyInApremB = day.aprem.some(s=>s.horaire==='aprem_B' && s.vets.includes(astrVet));
+     if(!hasFixedApremA && !alreadyInApremB){
+       const tgt = day.aprem.find(s=>s.horaire==='aprem_B');
+       if(tgt) tgt.vets.push(astrVet);
+     }
+     // Si hasFixedApremA : astreinte maintenue, véto finit à 17h (pas forcé sur 19h)
+   }
+ }
+
+ // ÉTAPE 3 : couverture continue — contrainte A/B : matin_A↔aprem_A, matin_B↔aprem_B
+ ensureOne(day.matin,'matin_A','matin', null, vetsIn(day.aprem,'aprem_B'));
+ ensureOne(day.matin,'matin_B','matin', null, vetsIn(day.aprem,'aprem_A'));
+ ensureOne(day.aprem,'aprem_A','aprem', null, vetsIn(day.matin,'matin_B'));
+ if(!isSat) ensureOne(day.aprem,'aprem_B','aprem', null, vetsIn(day.matin,'matin_A'));
+
+ // Minima : globaux (sans horaire) ET par sous-créneau (avec horaire)
+ const slotMatchDay = (r) => parityMatch(r.weekParity,year,month,d) && ((r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we)||r.dayType==='all');
+ // Règle globale (sans horaire spécifié) : minimum de vétos distincts sur le slot entier
+ const minMatRule = rules.find(r=>r.type==='min_per_slot' && r.slot==='matin' && !r.horaire && slotMatchDay(r));
+ const minAprRule = rules.find(r=>r.type==='min_per_slot' && r.slot==='aprem' && !r.horaire && slotMatchDay(r));
  const needMat = minMatRule ? minMatRule.min : 1;
  const needApr = minAprRule ? minAprRule.min : 1;
  const matAssigned = () => [...new Set(day.matin.flatMap(s=>s.vets))];
@@ -958,6 +980,27 @@
  if(chosen && !tgt.vets.includes(chosen) && !aprAssigned().includes(chosen)) tgt.vets.push(chosen);
  else break;
  }
+
+ // Minima par sous-créneau (règles avec horaire: 'matin_A'|'matin_B'|'aprem_A'|'aprem_B')
+ rules.filter(r=>r.type==='min_per_slot' && r.horaire && slotMatchDay(r)).forEach(subR=>{
+   const isMatSlot = subR.slot==='matin';
+   const tgt = (isMatSlot ? day.matin : day.aprem).find(s=>s.horaire===subR.horaire);
+   if(!tgt) return;
+   const slotName = isMatSlot ? 'matin' : 'aprem';
+   const crossHoraire = isMatSlot
+     ? (subR.horaire==='matin_A' ? 'aprem_B' : 'aprem_A')
+     : (subR.horaire==='aprem_A' ? 'matin_B' : 'matin_A');
+   const crossSide = isMatSlot ? day.aprem : day.matin;
+   while(tgt.vets.length < subR.min){
+     const inCross = vetsIn(crossSide, crossHoraire);
+     let cands = allVids.filter(vid=>canWork(vid,slotName) && !tgt.vets.includes(vid) && !inCross.has(vid));
+     if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !tgt.vets.includes(vid));
+     if(!cands.length) break;
+     const chosen = pickVet(cands);
+     if(!chosen || tgt.vets.includes(chosen)) break;
+     tgt.vets.push(chosen);
+   }
+ });
 
  // compléter en journée complète — règle A/B stricte : matin_A↔aprem_A, matin_B↔aprem_B
  matAssigned().forEach(vid=>{
@@ -1194,6 +1237,12 @@ const generateAstreintes = useCallback(()=>{
  if(dist<=1) s += 200; else if(dist<=3) s += 60;
  if(nextBlocVet && vid===nextBlocVet) s += 120;
  if(forbiddenDay(vid, d)) s += 1200;
+ // Préférence : éviter les vétos ayant une règle fixe finissant à 17h (aprem_A)
+ const hasFixedApremA = rules.some(r=>
+   r.type==='vet_slot_rule' && r.vetId===vid && r.horaire==='aprem_A' &&
+   matchRuleScope(r, year, month, d)
+ );
+ if(hasFixedApremA) s += 80;
  return s;
  };
  elig.sort((a,b)=>score(a)-score(b));
@@ -1641,14 +1690,26 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           if (allVets.length===0)
             alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : aucun véto assigné — tous les créneaux doivent être couverts`});
 
-          // Vérif couverture min
-          const minR=rules.find(r=>
+          // Vérif couverture min : globale (sans horaire) ET par sous-créneau (avec horaire)
+          rules.filter(r=>
             r.type==='min_per_slot' && r.slot===slot &&
             parityMatch(r.weekParity,y,m,d) &&
             (r.dayType==='all'||(r.dayType==='weekday'&&!we)||(r.dayType==='weekend'&&we))
-          );
-          if (minR&&allVets.length<minR.min)
-            alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : min. ${minR.min} véto(s) requis (${allVets.length} assigné(s))`});
+          ).forEach(minR=>{
+            if(minR.horaire){
+              // Minimum par type de créneau (A ou B)
+              const subSlot = slotArr.find(s=>s.horaire===minR.horaire);
+              const subCount = subSlot?.vets?.length || 0;
+              if(subCount < minR.min){
+                const hLabel = HORAIRES[minR.horaire]?.short || minR.horaire;
+                alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} ${hLabel} : min. ${minR.min} véto(s) requis (${subCount} assigné(s))`});
+              }
+            } else {
+              // Minimum global sur le slot entier
+              if(allVets.length < minR.min)
+                alerts.push({level:'error',slot,msg:`${slot==='matin'?'Matin':'Après-midi'} : min. ${minR.min} véto(s) requis (${allVets.length} assigné(s))`});
+            }
+          });
 
           rules.filter(r=>r.type==='vet_slot_rule' && r.slot===slot && matchRuleScope(r,y,m,d)).forEach(r=>{
             const target = slotArr.find(s=>s.horaire===r.horaire);
@@ -3821,6 +3882,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const [dType,        setDType]        = useState('weekday');
       const [parity,       setParity]       = useState('all');
       const [minN,         setMinN]         = useState(2);
+      const [minHoraire,   setMinHoraire]   = useState('');  // '' = global, 'matin_A/B' ou 'aprem_A/B' = par sous-créneau
       const [vetId,        setVetId]        = useState('');
       const [dow,          setDow]          = useState(1);
       const [horaire,      setHoraire]      = useState('matin_A');
@@ -3831,8 +3893,10 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const addRule=()=>{
         const base={id:uid(),type:rType,slot,dayType:dType,weekParity:parity};
         if(rType==='min_per_slot') setRules(prev=>{
-          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity);
-          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,{...base,min:minN}];
+          const hFilter = minHoraire || undefined;
+          const exists=prev.find(r=>r.type==='min_per_slot'&&r.slot===slot&&r.dayType===dType&&r.weekParity===parity&&(r.horaire||undefined)===(hFilter));
+          const rule = hFilter ? {...base,min:minN,horaire:hFilter} : {...base,min:minN};
+          return exists?prev.map(r=>r===exists?{...r,min:minN}:r):[...prev,rule];
         });
         else if(rType==='horaire_rule') setRules(prev=>{
           const rule = fixedDayRule
@@ -3869,7 +3933,10 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const labelOf=r=>{
         const pl=<span className={'parity-badge '+(r.weekParity==='even'?'parity-even':r.weekParity==='odd'?'parity-odd':'parity-all')} style={{margin:'0 3px'}}>{pLabel(r.weekParity)}</span>;
         const sl=<span className={'slot-badge '+(r.slot==='matin'?'slot-matin':r.slot==='aprem'?'slot-aprem':'slot-all')} style={{margin:'0 3px'}}>{sLabel(r.slot)}</span>;
-        if(r.type==='min_per_slot') return <span>📊 Min. {r.min} véto(s) — {sl} — S. {pl}</span>;
+        if(r.type==='min_per_slot'){
+          const hLbl = r.horaire ? <span style={{margin:'0 3px',fontWeight:700,color:'#0d9488'}}>{HORAIRES[r.horaire]?.short||r.horaire}</span> : null;
+          return <span>📊 Min. {r.min} véto(s) — {sl}{hLbl?' → ':''}{hLbl} — S. {pl}</span>;
+        }
         if(r.type==='horaire_rule'){
           const h=HORAIRES[r.horaire];
           const fixedDay = r.dayOfWeek !== undefined ? <span style={{margin:'0 3px'}}>Jour fixe {JS_FULL[r.dayOfWeek]}</span> : pl;
@@ -4080,6 +4147,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   setSlot(nextSlot);
                   const nextHoraire = Object.values(HORAIRES).find(h=>h.slot===nextSlot)?.id || 'matin_A';
                   setHoraire(nextHoraire);
+                  setMinHoraire('');
                 }} className="g-input">
                   <option value="matin">Matin</option>
                   <option value="aprem">Après-midi</option>
@@ -4101,6 +4169,15 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     <option value="weekday">Semaine</option>
                     <option value="weekend">Week-end</option>
                     <option value="all">Tous</option>
+                  </select>
+                </div>
+                <div>
+                  <span className="g-label">Par type A/B</span>
+                  <select value={minHoraire} onChange={e=>setMinHoraire(e.target.value)} className="g-input">
+                    <option value="">Global ({slot==='matin'?'A+B':'A+B'})</option>
+                    {Object.values(HORAIRES).filter(h=>h.slot===slot).map(h=>(
+                      <option key={h.id} value={h.id}>{h.id.endsWith('_A')?'Type A':'Type B'} — {h.short}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
