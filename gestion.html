@@ -848,7 +848,6 @@
 
  const workLoad = Object.fromEntries(vets.map(v=>[v.id,{dj:0}]));
  // Règle A/B : un véto fait soit matin_A+aprem_A, soit matin_B+aprem_B (ou une seule demi-journée)
- // Helper : ensemble des vétérinaires déjà affectés à un horaire donné
  const vetsIn = (arr, hid) => new Set(arr.find(s=>s.horaire===hid)?.vets || []);
 
  for(let d=1; d<=numDays; d++){
@@ -907,11 +906,8 @@
  const tgt = arr.find(s=>s.horaire===hid);
  if(!tgt || tgt.vets.length) return;
  const already = new Set(arr.flatMap(s=>s.vets||[]));
- // Priorité : respecter la contrainte A/B ET ne pas doubler le même slot
  let cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid) && !excluded.has(vid));
- // Fallback 1 : on relâche l'exclusion A/B si aucun candidat valide
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid));
- // Fallback 2 : on relâche aussi le filtre "déjà présent dans le slot"
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName));
  const chosen = pickVet(cands, (bias && !already.has(bias) && !excluded.has(bias)) ? bias : null);
  if(chosen) tgt.vets.push(chosen);
@@ -942,7 +938,6 @@
  const aprAssigned = () => [...new Set(day.aprem.flatMap(s=>s.vets))];
 
  while(matAssigned().length < needMat){
- // matin_A est le slot par défaut pour les minima → exclure les vétérinaires en aprem_B (règle A/B)
  const inApremB = vetsIn(day.aprem,'aprem_B');
  let cands = allVids.filter(vid=>canWork(vid,'matin') && !matAssigned().includes(vid) && !inApremB.has(vid));
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,'matin') && !matAssigned().includes(vid));
@@ -954,7 +949,6 @@
  }
 
  while(aprAssigned().length < needApr){
- // aprem_A est le slot par défaut pour les minima → exclure les vétérinaires en matin_B (règle A/B)
  const inMatinB = vetsIn(day.matin,'matin_B');
  let cands = allVids.filter(vid=>canWork(vid,'aprem') && !aprAssigned().includes(vid) && !inMatinB.has(vid));
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,'aprem') && !aprAssigned().includes(vid));
@@ -970,7 +964,6 @@
  if(aprAssigned().includes(vid)) return;
  if(!canWork(vid,'aprem')) return;
  const mH = day.matin.find(s=>s.vets.includes(vid))?.horaire || 'matin_A';
- // matin_A → aprem_A uniquement ; matin_B → aprem_B uniquement
  const requiredAprem = mH === 'matin_A' ? 'aprem_A' : 'aprem_B';
  const tgt = day.aprem.find(s=>s.horaire===requiredAprem);
  if(tgt && !tgt.vets.includes(vid) && !aprAssigned().includes(vid)) tgt.vets.push(vid);
@@ -980,7 +973,6 @@
  if(matAssigned().includes(vid)) return;
  if(!canWork(vid,'matin')) return;
  const aH = day.aprem.find(s=>s.vets.includes(vid))?.horaire || 'aprem_A';
- // aprem_A → matin_A uniquement ; aprem_B → matin_B uniquement
  const requiredMatin = aH === 'aprem_A' ? 'matin_A' : 'matin_B';
  const tgt = day.matin.find(s=>s.horaire===requiredMatin);
  if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid)) tgt.vets.push(vid);
@@ -1264,21 +1256,66 @@ const generateAstreintes = useCallback(()=>{
           });
 
         // ── Pauses déjeuner décalées ────────────────────────────
-        // Génère des segments individuels pour N ASVs journée complète.
-        // Pauses séquentielles (pas de chevauchement → couverture continue).
-        // h_override[asvId] = heures réelles à couvrir (pour shift partiel)
+        // Génère des segments individuels pour N ASVs.
+        // Mode journée normale : pauses séquentielles, tous les ASVs débutent à S.
+        // Mode journée longue (span > MAX_DAY_HOURS+lb+1h) : les débuts de shift
+        //   sont décalés automatiquement pour couvrir toute la plage horaire sans
+        //   qu'aucun ASV dépasse MAX_DAY_HOURS. Ex. 2 ASVs sur 8h-19h30 :
+        //   ASV0 = 8h-17h, ASV1 = 10h30-19h30 → couverture complète.
+        // h_override[asvId] = heures réelles (uniquement pour shifts partiels réels)
         const computeStaggered = (asvIds, S, E, lb, hOverride={}) => {
           const res = {};
           const n = asvIds.length;
           if(!n) return res;
 
+          const totalSpan    = Q(E - S);
+          const fullH        = Q(totalSpan - lb);         // heures effectives journée complète
+          const maxShiftSpan = Q(MAX_DAY_HOURS + lb);     // plage max couvrable par 1 ASV (ex. 9h)
+          // Journée longue = span > maxShiftSpan + 1h (marge pour éviter les cas limites)
+          const isLongDay     = totalSpan > maxShiftSpan + 1 + eps;
+          const allFullCover  = Object.keys(hOverride).length === 0;
+
+          if(isLongDay && allFullCover) {
+            // ── Mode journée longue : décalage des débuts ──────────
+            // Chaque ASV travaille exactement MAX_DAY_HOURS (+ lb de pause).
+            if(n === 1) {
+              // 1 seul ASV : couvre depuis S jusqu'à S+maxShiftSpan (ne peut pas atteindre E)
+              const shiftEnd = Q(S + maxShiftSpan);
+              const ls = Q(S + MAX_DAY_HOURS * 0.5);
+              const le = Q(ls + lb);
+              const segs = [];
+              if(ls > S)        segs.push({start: S,  end: ls});
+              if(le < shiftEnd) segs.push({start: le, end: shiftEnd});
+              if(!segs.length)  segs.push({start: S,  end: shiftEnd});
+              res[asvIds[0]] = {segments: segs};
+              return res;
+            }
+            // ≥ 2 ASVs : répartir les débuts uniformément sur la plage
+            const startStep = Q((totalSpan - maxShiftSpan) / (n - 1));
+            asvIds.forEach((aid, i) => {
+              const shiftStart = Q(S + i * startStep);
+              const shiftEnd   = Q(shiftStart + maxShiftSpan);
+              // Pause centrée dans le shift, bornée pour rester cohérente
+              const midShift = Q(shiftStart + MAX_DAY_HOURS * 0.5);
+              const ls = Q(Math.max(shiftStart + 0.5, Math.min(midShift, shiftEnd - lb - 0.5)));
+              const le = Q(ls + lb);
+              const segs = [];
+              if(ls > shiftStart) segs.push({start: shiftStart, end: ls});
+              if(le < shiftEnd)   segs.push({start: le,         end: shiftEnd});
+              if(!segs.length)    segs.push({start: shiftStart, end: shiftEnd});
+              res[aid] = {segments: segs};
+            });
+            return res;
+          }
+
+          // ── Mode normal (journée courte ou shifts partiels) ────
           const minLS = Q(S + 0.5);
           const maxLE = Q(E - 0.5);
-          const totalSpan = n * lb;
-          const firstLS = Math.max(minLS, Math.min(Q(13.0 - totalSpan/2), Q(maxLE - totalSpan)));
+          const totalLBSpan = n * lb;
+          const firstLS = Math.max(minLS, Math.min(Q(13.0 - totalLBSpan/2), Q(maxLE - totalLBSpan)));
 
           asvIds.forEach((aid, i)=>{
-            const targetH = hOverride[aid] ?? Q((E-S)-lb);
+            const targetH = hOverride[aid] ?? fullH;
             const start = (S===8 && i >= MAX_EARLY_ASVS) ? Q(S + 0.5) : S;
             let ls = Q(firstLS + i*lb);
             let le = Q(ls + lb);
@@ -1286,16 +1323,14 @@ const generateAstreintes = useCallback(()=>{
             if(le>maxLE){ le=maxLE; ls=Q(le-lb); }
             if(ls<minLS){ ls=minLS; le=Q(ls+lb); }
 
-            // Si heures < pleine journée → shift partiel matin seulement
-            // (l'ASV part après avoir complété son quota)
-            const fullH = Q((E-S)-lb);
+            // Si heures < pleine journée → shift partiel
             if(targetH < fullH - eps){
               const morningH = Q(ls - start);
               if(targetH <= morningH + eps){
                 // Seulement matin, part avant déjeuner
                 res[aid]={segments:[{start:start, end:Q(start+targetH)}]};
               } else {
-                // Matin complet + début aprem (sans toute la pause)
+                // Matin complet + début aprem
                 const apremH = Q(targetH - morningH);
                 res[aid]={segments:[{start:start,end:ls},{start:le,end:Q(le+apremH)}]};
               }
@@ -1303,7 +1338,7 @@ const generateAstreintes = useCallback(()=>{
               // Journée complète
               const segs=[];
               if(ls>start) segs.push({start:start,end:ls});
-              if(le<E) segs.push({start:le,end:E});
+              if(le<E)     segs.push({start:le,end:E});
               if(!segs.length) segs.push({start:start,end:E});
               res[aid]={segments:segs};
             }
@@ -1480,10 +1515,30 @@ const generateAstreintes = useCallback(()=>{
           // Journée (complète ou partielle) : pauses staggerées
           if(fullIds.length>0){
             if(info.fullDay){
-              const stag=computeStaggered(fullIds,info.asvStart,info.asvEnd,asvRules.lunchBreak,fullHours);
-              fullIds.forEach(aid=>{
-                dayData[aid]={...stag[aid],type:dayAssign[aid].type};
-              });
+              // Séparer les ASVs en couverture totale (full/full_over/renfort_jour)
+              // et les shifts réellement partiels (renfort_partiel, quota insuffisant).
+              // Les ASVs en couverture totale sont passés SANS hOverride : computeStaggered
+              // active alors le mode journée longue si nécessaire, décale les débuts
+              // de shift et garantit la présence d'ASVs après 17h.
+              const fullCoverIds = fullIds.filter(aid => dayAssign[aid].type !== 'renfort_partiel');
+              const partialIds   = fullIds.filter(aid => dayAssign[aid].type === 'renfort_partiel');
+
+              if(fullCoverIds.length > 0){
+                // Pas d'hOverride → couverture journée entière / mode longue journée auto
+                const stag = computeStaggered(fullCoverIds, info.asvStart, info.asvEnd, asvRules.lunchBreak, {});
+                fullCoverIds.forEach(aid=>{
+                  dayData[aid]={...stag[aid], type: dayAssign[aid].type};
+                });
+              }
+              if(partialIds.length > 0){
+                // hOverride avec les heures réelles disponibles (quota partiel)
+                const partialHours = {};
+                partialIds.forEach(aid => { partialHours[aid] = fullHours[aid]; });
+                const stag = computeStaggered(partialIds, info.asvStart, info.asvEnd, asvRules.lunchBreak, partialHours);
+                partialIds.forEach(aid=>{
+                  dayData[aid]={...stag[aid], type: dayAssign[aid].type};
+                });
+              }
             } else {
               // Demi-journée (pas de pause)
               let earlyStarts=0;
