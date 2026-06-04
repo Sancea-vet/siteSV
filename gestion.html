@@ -1360,7 +1360,10 @@ const generateAstreintes = useCallback(()=>{
                 shiftEnd = Q(shiftStart + maxShiftSpan);
               }
               const midShift = Q(shiftStart + MAX_DAY_HOURS * 0.5);
-              const ls = Q(Math.max(shiftStart + 0.5, Math.min(midShift, shiftEnd - lb - 0.5)));
+              const ls = Q(Math.min(
+                Math.max(shiftStart + 0.5, Math.min(midShift, shiftEnd - lb - 0.5)),
+                shiftStart + 6 - eps  // L3121-16 : pause avant 6h continu
+              ));
               const le = Q(ls + lb);
               const segs = [];
               if(ls > shiftStart) segs.push({start: shiftStart, end: ls});
@@ -1384,6 +1387,9 @@ const generateAstreintes = useCallback(()=>{
 
             let ls = Q(firstLS + i * lb);
             let le = Q(ls + lb);
+            // L3121-16 : pause avant 6h de travail continu
+            ls = Math.min(ls, Q(start + 6 - eps));
+            le = Q(ls + lb);
             // Reclampe selon les bornes individuelles start/actualEnd
             const myMinLS = Q(start + 0.5);
             const myMaxLE = Q(actualEnd - 0.5);
@@ -1435,9 +1441,20 @@ const generateAstreintes = useCallback(()=>{
           const hasMatin=mE.length>0, hasAprem=aS.length>0;
           const morningEnd=hasMatin?Q(Math.max(...mE)+0.5):null;
           const fullDay=hasMatin&&hasAprem;
-          const rawFullHours = fullDay?(asvEnd-asvStart)-asvRules.lunchBreak:(asvEnd-asvStart);
+          // L3121-16 : pause obligatoire dès 6h de travail continu
+          // → déduire lb des heures effectives quand la plage dépasse le seuil
+          const BREAK_THRESHOLD = 6;
+          const needBreakDemi = !fullDay && (asvEnd - asvStart) >= BREAK_THRESHOLD - eps;
+          const rawFullHours = fullDay
+            ? (asvEnd - asvStart) - asvRules.lunchBreak
+            : needBreakDemi ? (asvEnd - asvStart) - asvRules.lunchBreak : (asvEnd - asvStart);
           const hoursFullDay=Q(Math.min(rawFullHours, MAX_DAY_HOURS));
-          const hoursMatin=hasMatin?Q((morningEnd||asvEnd)-asvStart):0;
+          const matinSpan = hasMatin ? Q((morningEnd||asvEnd) - asvStart) : 0;
+          const hoursMatin = hasMatin
+            ? (matinSpan >= BREAK_THRESHOLD - eps
+                ? Q(Math.min(matinSpan - asvRules.lunchBreak, MAX_DAY_HOURS))
+                : matinSpan)
+            : 0;
           return {key,vetCount:vetSet.size,asvStart,asvEnd,morningEnd,
                   hasMatin,hasAprem,fullDay,hoursFullDay,hoursMatin};
         };
@@ -1605,7 +1622,8 @@ const generateAstreintes = useCallback(()=>{
                 });
               }
             } else {
-              // Demi-journée (pas de pause) : ouverture/fermeture max 2 ASVs
+              // Demi-journée : ouverture/fermeture max 2 ASVs
+              // Si la plage ≥ 6h → pause obligatoire (L3121-16), segments en deux parties
               const nFull = fullIds.length;
               let earlyStarts = 0;
               fullIds.forEach((aid, i) => {
@@ -1615,26 +1633,46 @@ const generateAstreintes = useCallback(()=>{
                 const start  = earlyStart ? info.asvStart : Q(info.asvStart + 0.5);
                 const maxEnd = lateEnd    ? info.asvEnd   : Q(info.asvEnd - 0.5);
                 if(earlyStart) earlyStarts++;
-                const end = Q(Math.min(start + hDay, maxEnd));
-                dayData[aid] = {segments:[{start, end}], type: dayAssign[aid].type};
+                const span = Q(maxEnd - start);
+                if(span >= 6 - eps) {
+                  // Pause centrée, mais au plus tard à start+6h
+                  const lb2 = asvRules.lunchBreak;
+                  const lsIdeal = Q(start + (span - lb2) / 2);
+                  const ls = Math.min(lsIdeal, Q(start + 6 - eps));
+                  const le = Q(ls + lb2);
+                  dayData[aid] = {segments:[{start, end:ls},{start:le, end:maxEnd}], type:dayAssign[aid].type};
+                } else {
+                  const end = Q(Math.min(start + hDay, maxEnd));
+                  dayData[aid] = {segments:[{start, end}], type:dayAssign[aid].type};
+                }
               });
             }
           }
 
-          // Renfort matin : segment [asvStart, asvStart+hDay], capped at morningEnd
-          // Règle ouverture/fermeture appliquée sur l'ensemble matinIds + earlyStarts déjà comptés
+          // Renfort matin : règle ouverture/fermeture + pause si plage ≥ 6h (L3121-16)
           let earlyStarts = Object.values(dayData).filter(d => d.segments[0]?.start === info.asvStart).length;
           const nMatin = matinIds.length;
-          const morningCap = info.morningEnd || info.asvEnd;  // = matinEnd + 0.5
+          const morningCap = info.morningEnd || info.asvEnd;
           matinIds.forEach((aid, i) => {
             const hDay = dayAssign[aid].hDay;
             const earlyStart = earlyStarts < MAX_EARLY_ASVS;
             const lateEnd    = i >= nMatin - MAX_LATE_ASVS;
             const start  = earlyStart ? info.asvStart : Q(info.asvStart + 0.5);
-            const maxEnd = lateEnd    ? morningCap    : Q(morningCap - 0.5);  // dernier : reste après dernier véto matin
+            const maxEnd = lateEnd    ? morningCap    : Q(morningCap - 0.5);
             if(earlyStart) earlyStarts++;
-            const end = Q(Math.min(start + hDay, maxEnd));
-            dayData[aid] = {segments:[{start, end}], type:'renfort_matin'};
+            const span = Q(maxEnd - start);
+            if(span >= 6 - eps) {
+              const lb2 = asvRules.lunchBreak;
+              const lsIdeal = Q(start + (span - lb2) / 2);
+              const ls = Math.min(lsIdeal, Q(start + 6 - eps));
+              const le = Q(ls + lb2);
+              const workAfter = Q(hDay - (ls - start));
+              const end = Q(Math.min(le + workAfter, maxEnd));
+              dayData[aid] = {segments:[{start, end:ls},{start:le, end}], type:'renfort_matin'};
+            } else {
+              const end = Q(Math.min(start + hDay, maxEnd));
+              dayData[aid] = {segments:[{start, end}], type:'renfort_matin'};
+            }
           });
 
           // ── Appliquer règles early_end et late_start ────────────
