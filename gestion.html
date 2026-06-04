@@ -1269,7 +1269,8 @@ const generateAstreintes = useCallback(()=>{
         const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
         const Q = h => Math.round(h*4)/4;   // arrondi 15min
         const eps = 0.24;                    // tolérance 15min-1 pour comparaisons
-        const MAX_EARLY_ASVS = 2;           // max 2 ASV de 8h00 à 8h30
+        const MAX_EARLY_ASVS = 2;  // max 2 ASVs commencent avant les vétos (ouverture)
+        const MAX_LATE_ASVS  = 2;  // max 2 ASVs finissent après les vétos (fermeture) — pas forcément les mêmes
         const MAX_DAY_HOURS = 8;            // jour ASV limité à 8h max
 
         // ── Règles personnelles ASV (jour off / fin anticipée) ──────
@@ -1306,11 +1307,14 @@ const generateAstreintes = useCallback(()=>{
 
         // ── Pauses déjeuner décalées ────────────────────────────
         // Génère des segments individuels pour N ASVs.
-        // Mode journée normale : pauses séquentielles, tous les ASVs débutent à S.
-        // Mode journée longue (span > MAX_DAY_HOURS+lb+1h) : les débuts de shift
-        //   sont décalés automatiquement pour couvrir toute la plage horaire sans
-        //   qu'aucun ASV dépasse MAX_DAY_HOURS. Ex. 2 ASVs sur 8h-19h30 :
-        //   ASV0 = 8h-17h, ASV1 = 10h30-19h30 → couverture complète.
+        // Règle ouverture/fermeture :
+        //   - MAX_EARLY_ASVS premiers : débutent à S (= heure véto - 30min)
+        //   - MAX_LATE_ASVS  derniers : finissent à E (= heure véto + 30min)
+        //   - Les autres            : débutent et finissent aux heures véto (S+0.5, E-0.5)
+        //   - "Pas forcément les mêmes" : si n ≤ 4, certains ont les deux rôles.
+        // Mode journée longue (span > MAX_DAY_HOURS+lb+1h) :
+        //   Les premiers MAX_EARLY_ASVS démarrent à S, les derniers MAX_LATE_ASVS
+        //   finissent à E. Les intermédiaires sont distribués entre vetStart et vetEnd.
         // h_override[asvId] = heures réelles (uniquement pour shifts partiels réels)
         const computeStaggered = (asvIds, S, E, lb, hOverride={}) => {
           const res = {};
@@ -1318,33 +1322,43 @@ const generateAstreintes = useCallback(()=>{
           if(!n) return res;
 
           const totalSpan    = Q(E - S);
-          const fullH        = Q(totalSpan - lb);         // heures effectives journée complète
-          const maxShiftSpan = Q(MAX_DAY_HOURS + lb);     // plage max couvrable par 1 ASV (ex. 9h)
-          // Journée longue = span > maxShiftSpan + 1h (marge pour éviter les cas limites)
-          const isLongDay     = totalSpan > maxShiftSpan + 1 + eps;
-          const allFullCover  = Object.keys(hOverride).length === 0;
+          const fullH        = Q(totalSpan - lb);
+          const maxShiftSpan = Q(MAX_DAY_HOURS + lb);
+          const isLongDay    = totalSpan > maxShiftSpan + 1 + eps;
+          const allFullCover = Object.keys(hOverride).length === 0;
 
           if(isLongDay && allFullCover) {
-            // ── Mode journée longue : décalage des débuts ──────────
-            // Chaque ASV travaille exactement MAX_DAY_HOURS (+ lb de pause).
-            if(n === 1) {
-              // 1 seul ASV : couvre depuis S jusqu'à S+maxShiftSpan (ne peut pas atteindre E)
-              const shiftEnd = Q(S + maxShiftSpan);
-              const ls = Q(S + MAX_DAY_HOURS * 0.5);
-              const le = Q(ls + lb);
-              const segs = [];
-              if(ls > S)        segs.push({start: S,  end: ls});
-              if(le < shiftEnd) segs.push({start: le, end: shiftEnd});
-              if(!segs.length)  segs.push({start: S,  end: shiftEnd});
-              res[asvIds[0]] = {segments: segs};
-              return res;
-            }
-            // ≥ 2 ASVs : répartir les débuts uniformément sur la plage
-            const startStep = Q((totalSpan - maxShiftSpan) / (n - 1));
+            // ── Mode journée longue ────────────────────────────────
+            // Premiers MAX_EARLY_ASVS : démarrent à S (ouverture)
+            // Derniers MAX_LATE_ASVS  : finissent à E (fermeture)
+            // Conflit (earlyStart ET lateEnd sur le même index) : distribution uniforme
+            const baseStep = n > 1 ? Q((totalSpan - maxShiftSpan) / (n - 1)) : 0;
             asvIds.forEach((aid, i) => {
-              const shiftStart = Q(S + i * startStep);
-              const shiftEnd   = Q(shiftStart + maxShiftSpan);
-              // Pause centrée dans le shift, bornée pour rester cohérente
+              const earlyStart = i < MAX_EARLY_ASVS;
+              const lateEnd    = i >= n - MAX_LATE_ASVS;
+              const conflict   = earlyStart && lateEnd;
+              let shiftStart, shiftEnd;
+              if(conflict) {
+                shiftStart = Q(S + i * baseStep);
+                shiftEnd   = Q(shiftStart + maxShiftSpan);
+              } else if(earlyStart) {
+                shiftStart = S;
+                shiftEnd   = Q(S + maxShiftSpan);
+              } else if(lateEnd) {
+                shiftEnd   = E;
+                shiftStart = Q(E - maxShiftSpan);
+              } else {
+                // ASV intermédiaire : distribué entre vetStart et vetEnd-maxShiftSpan
+                const innerN = Math.max(1, n - MAX_EARLY_ASVS - MAX_LATE_ASVS);
+                const innerI = i - MAX_EARLY_ASVS;
+                const rStart = Q(S + 0.5);
+                const rEnd   = Q(E - 0.5 - maxShiftSpan);
+                const rLen   = Math.max(0, rEnd - rStart);
+                shiftStart = innerN <= 1
+                  ? Q(rStart + rLen / 2)
+                  : Q(rStart + rLen * innerI / (innerN - 1));
+                shiftEnd = Q(shiftStart + maxShiftSpan);
+              }
               const midShift = Q(shiftStart + MAX_DAY_HOURS * 0.5);
               const ls = Q(Math.max(shiftStart + 0.5, Math.min(midShift, shiftEnd - lb - 0.5)));
               const le = Q(ls + lb);
@@ -1357,38 +1371,40 @@ const generateAstreintes = useCallback(()=>{
             return res;
           }
 
-          // ── Mode normal (journée courte ou shifts partiels) ────
-          const minLS = Q(S + 0.5);
-          const maxLE = Q(E - 0.5);
+          // ── Mode normal ────────────────────────────────────────
           const totalLBSpan = n * lb;
-          const firstLS = Math.max(minLS, Math.min(Q(13.0 - totalLBSpan/2), Q(maxLE - totalLBSpan)));
+          const firstLS = Math.max(Q(S + 0.5), Math.min(Q(13.0 - totalLBSpan/2), Q(E - 0.5 - totalLBSpan)));
 
           asvIds.forEach((aid, i)=>{
-            const targetH = hOverride[aid] ?? fullH;
-            const start = (S===8 && i >= MAX_EARLY_ASVS) ? Q(S + 0.5) : S;
-            let ls = Q(firstLS + i*lb);
-            let le = Q(ls + lb);
-            // Reclampe si déborde
-            if(le>maxLE){ le=maxLE; ls=Q(le-lb); }
-            if(ls<minLS){ ls=minLS; le=Q(ls+lb); }
+            const targetH    = hOverride[aid] ?? fullH;
+            const earlyStart = i < MAX_EARLY_ASVS;
+            const lateEnd    = i >= n - MAX_LATE_ASVS;
+            const start      = earlyStart ? S     : Q(S + 0.5);  // ouverture ou heure véto
+            const actualEnd  = lateEnd   ? E     : Q(E - 0.5);  // fermeture ou heure véto
 
-            // Si heures < pleine journée → shift partiel
+            let ls = Q(firstLS + i * lb);
+            let le = Q(ls + lb);
+            // Reclampe selon les bornes individuelles start/actualEnd
+            const myMinLS = Q(start + 0.5);
+            const myMaxLE = Q(actualEnd - 0.5);
+            if(le > myMaxLE){ le = myMaxLE; ls = Q(le - lb); }
+            if(ls < myMinLS){ ls = myMinLS; le = Q(ls + lb); }
+
             if(targetH < fullH - eps){
+              // Shift partiel : nombre d'heures fixé par hOverride
               const morningH = Q(ls - start);
               if(targetH <= morningH + eps){
-                // Seulement matin, part avant déjeuner
-                res[aid]={segments:[{start:start, end:Q(start+targetH)}]};
+                res[aid]={segments:[{start, end:Q(Math.min(start + targetH, actualEnd))}]};
               } else {
-                // Matin complet + début aprem
                 const apremH = Q(targetH - morningH);
-                res[aid]={segments:[{start:start,end:ls},{start:le,end:Q(le+apremH)}]};
+                res[aid]={segments:[{start, end:ls},{start:le, end:Q(Math.min(le + apremH, actualEnd))}]};
               }
             } else {
-              // Journée complète
+              // Journée complète : de start à actualEnd avec pause
               const segs=[];
-              if(ls>start) segs.push({start:start,end:ls});
-              if(le<E)     segs.push({start:le,end:E});
-              if(!segs.length) segs.push({start:start,end:E});
+              if(ls > start)     segs.push({start, end:ls});
+              if(le < actualEnd) segs.push({start:le, end:actualEnd});
+              if(!segs.length)   segs.push({start, end:actualEnd});
               res[aid]={segments:segs};
             }
           });
@@ -1589,29 +1605,36 @@ const generateAstreintes = useCallback(()=>{
                 });
               }
             } else {
-              // Demi-journée (pas de pause)
-              let earlyStarts=0;
-              fullIds.forEach(aid=>{
-                const hDay=dayAssign[aid].hDay;
-                const start = (info.asvStart===8 && earlyStarts >= MAX_EARLY_ASVS) ? Q(info.asvStart + 0.5) : info.asvStart;
-                if(start===info.asvStart) earlyStarts++;
-                const end=Q(Math.min(start+hDay, info.asvEnd));
-                dayData[aid]={segments:[{start,end}],type:dayAssign[aid].type};
+              // Demi-journée (pas de pause) : ouverture/fermeture max 2 ASVs
+              const nFull = fullIds.length;
+              let earlyStarts = 0;
+              fullIds.forEach((aid, i) => {
+                const hDay = dayAssign[aid].hDay;
+                const earlyStart = earlyStarts < MAX_EARLY_ASVS;
+                const lateEnd    = i >= nFull - MAX_LATE_ASVS;
+                const start  = earlyStart ? info.asvStart : Q(info.asvStart + 0.5);
+                const maxEnd = lateEnd    ? info.asvEnd   : Q(info.asvEnd - 0.5);
+                if(earlyStart) earlyStarts++;
+                const end = Q(Math.min(start + hDay, maxEnd));
+                dayData[aid] = {segments:[{start, end}], type: dayAssign[aid].type};
               });
             }
           }
 
-          // Renfort matin : segment [asvStart, asvStart+hDay]
-          let earlyStarts = Object.values(dayData).filter(d=>d.segments[0]?.start===info.asvStart).length;
-          matinIds.forEach(aid=>{
-            const hDay=dayAssign[aid].hDay;
-            const start = (info.asvStart===8 && earlyStarts >= MAX_EARLY_ASVS) ? Q(info.asvStart + 0.5) : info.asvStart;
-            if(start===info.asvStart) earlyStarts++;
-            const end=Q(start+hDay);
-            dayData[aid]={
-              segments:[{start, end:Math.min(end, info.morningEnd||info.asvEnd)}],
-              type:'renfort_matin'
-            };
+          // Renfort matin : segment [asvStart, asvStart+hDay], capped at morningEnd
+          // Règle ouverture/fermeture appliquée sur l'ensemble matinIds + earlyStarts déjà comptés
+          let earlyStarts = Object.values(dayData).filter(d => d.segments[0]?.start === info.asvStart).length;
+          const nMatin = matinIds.length;
+          const morningCap = info.morningEnd || info.asvEnd;  // = matinEnd + 0.5
+          matinIds.forEach((aid, i) => {
+            const hDay = dayAssign[aid].hDay;
+            const earlyStart = earlyStarts < MAX_EARLY_ASVS;
+            const lateEnd    = i >= nMatin - MAX_LATE_ASVS;
+            const start  = earlyStart ? info.asvStart : Q(info.asvStart + 0.5);
+            const maxEnd = lateEnd    ? morningCap    : Q(morningCap - 0.5);  // dernier : reste après dernier véto matin
+            if(earlyStart) earlyStarts++;
+            const end = Q(Math.min(start + hDay, maxEnd));
+            dayData[aid] = {segments:[{start, end}], type:'renfort_matin'};
           });
 
           // ── Appliquer règles early_end et late_start ────────────
