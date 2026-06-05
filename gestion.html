@@ -1269,8 +1269,8 @@ const generateAstreintes = useCallback(()=>{
         const prefix = `${year}-${String(month+1).padStart(2,'0')}-`;
         const Q = h => Math.round(h*4)/4;   // arrondi 15min
         const eps = 0.24;                    // tolérance 15min-1 pour comparaisons
-        const MAX_EARLY_ASVS = 2;  // max 2 ASVs commencent avant les vétos (ouverture)
-        const MAX_LATE_ASVS  = 2;  // max 2 ASVs finissent après les vétos (fermeture) — pas forcément les mêmes
+        const MAX_EARLY_ASVS = 1;  // 1 seule ASV commence avant les vétos (ouverture)
+        const MAX_LATE_ASVS  = 1;  // 1 seule ASV finit après les vétos (fermeture)
         const MAX_DAY_HOURS = 8;            // jour ASV limité à 8h max
         const LUNCH_MIN_START = 12;         // pause déjeuner pas avant 12h
         const LUNCH_MAX_END   = 15;         // reprise aprem au plus tard à 15h (usage français)
