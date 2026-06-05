@@ -359,7 +359,7 @@
       {id:'a3',name:'ASV 3',color:PALETTE_ASV[2]},
       {id:'a4',name:'ASV 4',color:PALETTE_ASV[3]},
     ];
-    const DEFAULT_ASV_RULES = { hoursPerWeek: 35, lunchBreak: 1 };
+    const DEFAULT_ASV_RULES = { hoursPerWeek: 35, lunchBreak: 1, minShiftH: 3.5 };
 
     const DEFAULT_HORAIRE_TIMES = {
       matin_A: {start:8.5,  end:12.0},
@@ -1272,6 +1272,8 @@ const generateAstreintes = useCallback(()=>{
         const MAX_EARLY_ASVS = 2;  // max 2 ASVs commencent avant les vétos (ouverture)
         const MAX_LATE_ASVS  = 2;  // max 2 ASVs finissent après les vétos (fermeture) — pas forcément les mêmes
         const MAX_DAY_HOURS = 8;            // jour ASV limité à 8h max
+        const LUNCH_MIN_START = 12;         // pause déjeuner pas avant 12h
+        const LUNCH_MAX_END   = 15;         // reprise aprem au plus tard à 15h (usage français)
 
         // ── Règles personnelles ASV (jour off / fin anticipée) ──────
         const getDowOfDay = (d) => dowJS(year, month, d);
@@ -1387,8 +1389,8 @@ const generateAstreintes = useCallback(()=>{
 
             let ls = Q(firstLS + i * lb);
             let le = Q(ls + lb);
-            // L3121-16 : pause avant 6h de travail continu
-            ls = Math.min(ls, Q(start + 6 - eps));
+            // Fenêtre déjeuner : [LUNCH_MIN_START, LUNCH_MAX_END] + L3121-16 (avant 6h continus)
+            ls = Math.max(Q(LUNCH_MIN_START), Math.min(ls, Q(LUNCH_MAX_END - lb), Q(start + 6 - eps)));
             le = Q(ls + lb);
             // Reclampe selon les bornes individuelles start/actualEnd
             const myMinLS = Q(start + 0.5);
@@ -1400,10 +1402,14 @@ const generateAstreintes = useCallback(()=>{
               // Shift partiel : nombre d'heures fixé par hOverride
               const morningH = Q(ls - start);
               if(targetH <= morningH + eps){
-                res[aid]={segments:[{start, end:Q(Math.min(start + targetH, actualEnd))}]};
+                // Matin seulement : décaler le début pour finir à l'heure naturelle du déjeuner
+                // Ex : 3.5h restantes avec ls=12h → commence à 8h30, finit à 12h (et non 8h→11h30)
+                const adjustedStart = Q(Math.max(start, ls - targetH));
+                res[aid]={segments:[{start:adjustedStart, end:Q(adjustedStart + targetH)}]};
               } else {
+                // Matin complet + début aprem
                 const apremH = Q(targetH - morningH);
-                res[aid]={segments:[{start, end:ls},{start:le, end:Q(Math.min(le + apremH, actualEnd))}]};
+                res[aid]={segments:[{start,end:ls},{start:le,end:Q(Math.min(le+apremH,actualEnd))}]};
               }
             } else {
               // Journée complète : de start à actualEnd avec pause
@@ -1530,6 +1536,7 @@ const generateAstreintes = useCallback(()=>{
         //  Ajoute des créneaux matin (heures ≤ restantes) sur les jours
         //  non encore couverts, priorité aux jours avec le + de vétos.
         // ══════════════════════════════════════════════════════
+          const minSH = asvRules.minShiftH ?? 3.5;  // durée minimale d'un renfort (évite les micro-shifts)
         Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
           const wn=+wnStr;
           const matinDays=days.filter(d=>dayInfoMap[d].hasMatin)
@@ -1537,13 +1544,13 @@ const generateAstreintes = useCallback(()=>{
           asvs.forEach(asv=>{
             matinDays.forEach(d=>{
               const rem=remH(asv.id,wn);
-              if(rem<0.25-eps) return; // quota atteint
+              if(rem < minSH - eps) return; // quota quasi-atteint ou shift trop court
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
               if(hasAsvDayOff(asv.id, d)) return;
               if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd||info.asvEnd)) return;
               const h=Math.min(rem,info.hoursMatin);
-              if(h<0.25-eps) return;
+              if(h < minSH - eps) return;
               markAssign(info.key,asv.id,'renfort_matin',Q(h));
               addWH(asv.id,wn,h);
             });
@@ -1561,14 +1568,14 @@ const generateAstreintes = useCallback(()=>{
           asvs.forEach(asv=>{
             allDays.forEach(d=>{
               const rem=remH(asv.id,wn);
-              if(rem<0.25-eps) return;
+              if(rem < minSH - eps) return;
               const info=dayInfoMap[d];
               if(isOn(asv.id,info.key)) return;
               if(hasAsvDayOff(asv.id, d)) return;
               if(isUnavailAt(asv.id,info.key,info.asvStart,info.asvEnd)) return;
               // Heures à couvrir = min(restant, journée complète)
               const h=Math.min(rem,info.hoursFullDay);
-              if(h<0.25-eps) return;
+              if(h < minSH - eps) return;
               const type=h<info.hoursFullDay-eps?'renfort_partiel':'renfort_jour';
               markAssign(info.key,asv.id,type,Q(h));
               addWH(asv.id,wn,h);
@@ -1635,10 +1642,10 @@ const generateAstreintes = useCallback(()=>{
                 if(earlyStart) earlyStarts++;
                 const span = Q(maxEnd - start);
                 if(span >= 6 - eps) {
-                  // Pause centrée, mais au plus tard à start+6h
+                  // Pause centrée dans la fenêtre [LUNCH_MIN_START, LUNCH_MAX_END], avant 6h continus
                   const lb2 = asvRules.lunchBreak;
                   const lsIdeal = Q(start + (span - lb2) / 2);
-                  const ls = Math.min(lsIdeal, Q(start + 6 - eps));
+                  const ls = Math.max(Q(LUNCH_MIN_START), Math.min(lsIdeal, Q(LUNCH_MAX_END - lb2), Q(start + 6 - eps)));
                   const le = Q(ls + lb2);
                   dayData[aid] = {segments:[{start, end:ls},{start:le, end:maxEnd}], type:dayAssign[aid].type};
                 } else {
@@ -1664,7 +1671,7 @@ const generateAstreintes = useCallback(()=>{
             if(span >= 6 - eps) {
               const lb2 = asvRules.lunchBreak;
               const lsIdeal = Q(start + (span - lb2) / 2);
-              const ls = Math.min(lsIdeal, Q(start + 6 - eps));
+              const ls = Math.max(Q(LUNCH_MIN_START), Math.min(lsIdeal, Q(LUNCH_MAX_END - lb2), Q(start + 6 - eps)));
               const le = Q(ls + lb2);
               const workAfter = Q(hDay - (ls - start));
               const end = Q(Math.min(le + workAfter, maxEnd));
@@ -3621,10 +3628,28 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 </div>
               </div>
 
+              <div className="g-divider"/>
+
+              <div style={{display:'flex',alignItems:'center',gap:12}}>
+                <div style={{flex:1}}>
+                  <span className="g-label">Durée minimale d'un shift</span>
+                  <p style={{fontSize:12,color:'#9ca3af',marginBottom:6}}>Durée plancher pour les renforts partiels — en dessous, le shift n'est pas créé (usage FR : 3h min.)</p>
+                </div>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <button onClick={()=>setAsvRules(r=>({...r,minShiftH:Math.max(1,+((r.minShiftH??3.5)-0.5).toFixed(1))}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                  <span style={{fontSize:18,fontWeight:700,color:'#0d9488',minWidth:48,textAlign:'center'}}>
+                    {(asvRules.minShiftH??3.5)}h
+                  </span>
+                  <button onClick={()=>setAsvRules(r=>({...r,minShiftH:Math.min(8,+((r.minShiftH??3.5)+0.5).toFixed(1))}))}
+                    style={{width:28,height:28,borderRadius:'50%',border:'1.5px solid #e2e8f0',background:'#f8fafc',
+                      cursor:'pointer',fontSize:16,fontWeight:600,color:'#6b7280',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                </div>
+              </div>
+
             </div>
           </div>
-
-          {/* Règles fixes */}
           <div className="g-card" style={{border:'1.5px solid #99f6e4',background:'#f0fdfa'}}>
             <h4 style={{fontSize:13,fontWeight:600,color:'#0d9488',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:10}}>
               🔒 Règles fixes — non modifiables
