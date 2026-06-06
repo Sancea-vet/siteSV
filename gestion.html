@@ -1482,104 +1482,234 @@ const generateAstreintes = useCallback(()=>{
           if(!weeklyH[wn]) weeklyH[wn]={};
           weeklyH[wn][aid]=Q((weeklyH[wn][aid]||0)+h);
         };
-        // Heures restantes jusqu'au contrat (arrondi 15min, plancher 0)
         const remH=(aid,wn)=>Math.max(0, Q(asvRules.hoursPerWeek-getWH(aid,wn)));
+        const minSH = asvRules.minShiftH ?? 3.5;
 
-        // assign[dateKey][asvId] = {type, hDay} — hDay = heures réelles ce jour
-        const assign={};
-        const isOn=(aid,key)=>!!(assign[key]&&assign[key][aid]);
-        const markAssign=(key,aid,type,hDay)=>{
-          if(!assign[key]) assign[key]={};
-          assign[key][aid]={type,hDay};
+        // ── MOTEUR DE ROTATION ─────────────────────────────────────
+        // Numéro ISO de semaine absolu → cohérence d'un mois à l'autre.
+        // rotBase = (wn + dowIdx) % nAvail
+        // dowIdx : Lun=0 Mar=1 … Sam=5 Dim=6
+        // → index 0 dans la liste = ouvreur (commence à 8h / asvStart)
+        // → dernier index = fermeur (finit à asvEnd)
+        const getRotOrderFor = (d, availItems, wn) => {
+          if(!availItems.length) return [];
+          const dow = dowJS(year, month, d);
+          const dowIdx = dow === 0 ? 6 : dow - 1;
+          const n = availItems.length;
+          const rotBase = (wn + dowIdx) % n;
+          return [...Array(n).keys()].map(i => availItems[(rotBase + i) % n]);
         };
 
+        // ── Suivi samedis (équité mensuelle) ───────────────────────
+        const satCount = {};
+        asvs.forEach(a => { satCount[a.id] = 0; });
+
+        // assign[dateKey][asvId] = {type, hDay, order}
+        // order : 0=ouvreur  999=fermeur  10-90=milieu  200=renfort_matin
+        const assign={};
+        const isOn=(aid,key)=>!!(assign[key]&&assign[key][aid]);
+        const markAssign=(key,aid,type,hDay,order=60)=>{
+          if(!assign[key]) assign[key]={};
+          assign[key][aid]={type,hDay,order};
+        };
+
+        const sortedWeeks = Object.keys(weekDaysMap).map(Number).sort((a,b)=>a-b);
+
         // ══════════════════════════════════════════════════════
-        // PHASE 1 — Couverture de base : 1 ASV/véto, journée complète
-        //  Priorité aux ASVs dont les heures tiennent dans le contrat.
-        //  Si impossible : assigner quand même (overQuota) pour couvrir.
+        // PHASE 1 — Couverture de base avec roulement
+        //
+        //  SAMEDI : équité d'abord (satCount croissant),
+        //           roulement comme départage.
+        //
+        //  SEMAINE : roulement déterministe (n° ISO semaine × jour)
+        //    → même cycle chaque mois, prévisible et équitable.
+        //    L'ouvreur (8h) et le fermeur tournent automatiquement.
+        //
+        //  Ordre d'insertion = ordre rotation :
+        //    assigned[0]     → order 0   (ouvreur)
+        //    assigned[1..n-2]→ order 10+ (milieu)
+        //    assigned[n-1]   → order 999 (fermeur)
         // ══════════════════════════════════════════════════════
-        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
-          const wn=+wnStr;
-          days.forEach(d=>{
-            const info=dayInfoMap[d];
-            const {key,vetCount,asvStart,asvEnd,hoursFullDay}=info;
-            // Tri : ASVs les moins chargées en premier
-            const sorted=[...asvs].sort((a,b)=>getWH(a.id,wn)-getWH(b.id,wn));
-            let cnt=0;
-            // Passe 1 : ASVs qui ne dépassent pas leur contrat
-            for(const asv of sorted){
-              if(cnt>=vetCount) break;
-              if(hasAsvDayOff(asv.id, d)) continue;
-              if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
-              if(getWH(asv.id,wn)+hoursFullDay>asvRules.hoursPerWeek+eps) continue;
-              markAssign(key,asv.id,'full',hoursFullDay);
-              addWH(asv.id,wn,hoursFullDay);
-              cnt++;
+        sortedWeeks.forEach(wn => {
+          const days = weekDaysMap[wn];
+          days.forEach(d => {
+            const info = dayInfoMap[d];
+            const {key, vetCount, asvStart, asvEnd, hoursFullDay} = info;
+            const dow = dowJS(year, month, d);
+            const isSaturday = dow === 6;
+
+            const avail = asvs.filter(a =>
+              !hasAsvDayOff(a.id, d) &&
+              !isUnavailAt(a.id, key, asvStart, asvEnd)
+            );
+            if(!avail.length) return;
+
+            let rotOrdered;
+            if(isSaturday) {
+              // Samedi : équité mensuelle + roulement en départage
+              const rotRef = getRotOrderFor(d, avail, wn);
+              const rotPos = {};
+              rotRef.forEach((a, i) => { rotPos[a.id] = i; });
+              rotOrdered = [...avail].sort((a, b) => {
+                const sc = satCount[a.id] - satCount[b.id];
+                return sc !== 0 ? sc : rotPos[a.id] - rotPos[b.id];
+              });
+            } else {
+              rotOrdered = getRotOrderFor(d, avail, wn);
             }
-            // Passe 2 : si pas assez, prendre les disponibles même si ça dépasse
-            if(cnt<vetCount){
-              for(const asv of sorted){
-                if(cnt>=vetCount) break;
-                if(isOn(asv.id,key)) continue;
-                if(hasAsvDayOff(asv.id, d)) continue;
-                if(isUnavailAt(asv.id,key,asvStart,asvEnd)) continue;
-                markAssign(key,asv.id,'full_over',hoursFullDay);
-                addWH(asv.id,wn,hoursFullDay);
-                cnt++;
+
+            // Passe 1 : rotation, dans le quota contrat
+            const assigned = [];
+            for(const asv of rotOrdered) {
+              if(assigned.length >= vetCount) break;
+              if(getWH(asv.id, wn) + hoursFullDay <= asvRules.hoursPerWeek + eps)
+                assigned.push(asv.id);
+            }
+            // Passe 2 : combler hors quota pour garantir couverture
+            if(assigned.length < vetCount) {
+              for(const asv of rotOrdered) {
+                if(assigned.length >= vetCount) break;
+                if(!assigned.includes(asv.id)) assigned.push(asv.id);
               }
             }
+
+            assigned.forEach((aid, i) => {
+              const n = assigned.length;
+              const order = i === 0 ? 0 : (i === n - 1 && n > 1) ? 999 : 10 + i;
+              const type = getWH(aid, wn) + hoursFullDay > asvRules.hoursPerWeek + eps
+                ? 'full_over' : 'full';
+              markAssign(key, aid, type, hoursFullDay, order);
+              addWH(aid, wn, hoursFullDay);
+              if(isSaturday) satCount[aid]++;
+            });
           });
         });
 
         // ══════════════════════════════════════════════════════
-        // PHASE 2 — Renfort matin : pour les ASVs sous quota
-        //  Ajoute des créneaux matin (heures ≤ restantes) sur les jours
-        //  non encore couverts, priorité aux jours avec le + de vétos.
+        // PHASE 2 — Renfort matin : ASVs sous quota
+        //  Priorité matin + jours avec le plus de vétos.
         // ══════════════════════════════════════════════════════
-          const minSH = asvRules.minShiftH ?? 3.5;  // durée minimale d'un renfort (évite les micro-shifts)
-        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
-          const wn=+wnStr;
-          const matinDays=days.filter(d=>dayInfoMap[d].hasMatin)
-            .sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
-          asvs.forEach(asv=>{
-            matinDays.forEach(d=>{
-              const rem=remH(asv.id,wn);
-              if(rem < minSH - eps) return; // quota quasi-atteint ou shift trop court
-              const info=dayInfoMap[d];
-              if(isOn(asv.id,info.key)) return;
+        sortedWeeks.forEach(wn => {
+          const days = weekDaysMap[wn];
+          const matinDays = days.filter(d => dayInfoMap[d].hasMatin)
+            .sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
+          asvs.forEach(asv => {
+            matinDays.forEach(d => {
+              const rem = remH(asv.id, wn);
+              if(rem < minSH - eps) return;
+              const info = dayInfoMap[d];
+              if(isOn(asv.id, info.key)) return;
               if(hasAsvDayOff(asv.id, d)) return;
-              if(isUnavailAt(asv.id,info.key,info.asvStart,info.morningEnd||info.asvEnd)) return;
-              const h=Math.min(rem,info.hoursMatin);
+              if(isUnavailAt(asv.id, info.key, info.asvStart, info.morningEnd||info.asvEnd)) return;
+              const h = Math.min(rem, info.hoursMatin);
               if(h < minSH - eps) return;
-              markAssign(info.key,asv.id,'renfort_matin',Q(h));
-              addWH(asv.id,wn,h);
+              markAssign(info.key, asv.id, 'renfort_matin', Q(h), 200);
+              addWH(asv.id, wn, h);
             });
           });
         });
 
         // ══════════════════════════════════════════════════════
         // PHASE 3 — Renfort journée : combler le quota restant
-        //  Utilise des journées complètes ou partielles selon les heures
-        //  restantes — jamais plus que le contrat.
+        //  order 60 : slot intermédiaire (entre milieu Ph1 et fermeur Ph1)
         // ══════════════════════════════════════════════════════
-        Object.entries(weekDaysMap).forEach(([wnStr,days])=>{
-          const wn=+wnStr;
-          const allDays=[...days].sort((a,b)=>dayInfoMap[b].vetCount-dayInfoMap[a].vetCount);
-          asvs.forEach(asv=>{
-            allDays.forEach(d=>{
-              const rem=remH(asv.id,wn);
+        sortedWeeks.forEach(wn => {
+          const days = weekDaysMap[wn];
+          const allDays = [...days].sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
+          asvs.forEach(asv => {
+            allDays.forEach(d => {
+              const rem = remH(asv.id, wn);
               if(rem < minSH - eps) return;
-              const info=dayInfoMap[d];
-              if(isOn(asv.id,info.key)) return;
+              const info = dayInfoMap[d];
+              if(isOn(asv.id, info.key)) return;
               if(hasAsvDayOff(asv.id, d)) return;
-              if(isUnavailAt(asv.id,info.key,info.asvStart,info.asvEnd)) return;
-              // Heures à couvrir = min(restant, journée complète)
-              const h=Math.min(rem,info.hoursFullDay);
+              if(isUnavailAt(asv.id, info.key, info.asvStart, info.asvEnd)) return;
+              const h = Math.min(rem, info.hoursFullDay);
               if(h < minSH - eps) return;
-              const type=h<info.hoursFullDay-eps?'renfort_partiel':'renfort_jour';
-              markAssign(info.key,asv.id,type,Q(h));
-              addWH(asv.id,wn,h);
+              const type = h < info.hoursFullDay - eps ? 'renfort_partiel' : 'renfort_jour';
+              markAssign(info.key, asv.id, type, Q(h), 60);
+              addWH(asv.id, wn, h);
             });
+          });
+        });
+
+        // ══════════════════════════════════════════════════════
+        // PHASE 4 — Ajustement exact des heures (≡ contrat)
+        //
+        //  DÉPASSEMENT : rogner hDay sur le jour le mieux couvert
+        //    → type 'renfort_partiel' → computeStaggered génère des
+        //      segments courts (début plus tardif / fin plus tôt).
+        //
+        //  MANQUE : allonger un jour déjà assigné si possible,
+        //    sinon ajouter un créneau sur un jour non travaillé.
+        //    Objectif : total hebdo = exactement hoursPerWeek.
+        // ══════════════════════════════════════════════════════
+        sortedWeeks.forEach(wn => {
+          const days = weekDaysMap[wn];
+          asvs.forEach(asv => {
+            const actual = Q(getWH(asv.id, wn));
+            const target = Q(asvRules.hoursPerWeek);
+            let delta = Q(actual - target); // >0 trop, <0 manque
+
+            if(delta > eps) {
+              // Rogner sur le jour le mieux couvert (moins d'impact clinique)
+              const assignedDays = days
+                .filter(d => dayInfoMap[d] && isOn(asv.id, dayInfoMap[d].key))
+                .sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
+              for(const d of assignedDays) {
+                if(delta <= eps) break;
+                const info = dayInfoMap[d];
+                const curr = assign[info.key]?.[asv.id];
+                if(!curr) continue;
+                const canTrim = Q(curr.hDay - minSH);
+                if(canTrim <= eps) continue;
+                const trim = Q(Math.min(delta, canTrim));
+                const newType = curr.type === 'renfort_matin' ? 'renfort_matin' : 'renfort_partiel';
+                assign[info.key][asv.id] = {...curr, hDay: Q(curr.hDay - trim), type: newType};
+                addWH(asv.id, wn, -trim);
+                delta = Q(delta - trim);
+              }
+            } else if(delta < -eps) {
+              // Allonger d'abord les jours déjà assignés (moins couvert = priorité)
+              let rem = Q(-delta);
+              const assignedDays = days
+                .filter(d => dayInfoMap[d] && isOn(asv.id, dayInfoMap[d].key))
+                .sort((a,b) => dayInfoMap[a].vetCount - dayInfoMap[b].vetCount);
+              for(const d of assignedDays) {
+                if(rem <= eps) break;
+                const info = dayInfoMap[d];
+                const curr = assign[info.key]?.[asv.id];
+                if(!curr) continue;
+                const canExt = Q(info.hoursFullDay - curr.hDay);
+                if(canExt <= eps) continue;
+                const ext = Q(Math.min(rem, canExt));
+                const newHDay = Q(curr.hDay + ext);
+                const newType = newHDay >= info.hoursFullDay - eps
+                  ? (curr.type === 'renfort_partiel' ? 'renfort_jour' : curr.type)
+                  : curr.type;
+                assign[info.key][asv.id] = {...curr, hDay: newHDay, type: newType};
+                addWH(asv.id, wn, ext);
+                rem = Q(rem - ext);
+              }
+              // Ajouter un créneau sur un jour non travaillé si manque encore ≥ minSH
+              if(rem >= minSH - eps) {
+                const unassigned = days
+                  .filter(d => dayInfoMap[d] && !isOn(asv.id, dayInfoMap[d].key))
+                  .sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
+                for(const d of unassigned) {
+                  if(rem < minSH - eps) break;
+                  const info = dayInfoMap[d];
+                  if(hasAsvDayOff(asv.id, d)) continue;
+                  if(isUnavailAt(asv.id, info.key, info.asvStart, info.asvEnd)) continue;
+                  const h = Q(Math.min(rem, info.hoursFullDay));
+                  if(h < minSH - eps) continue;
+                  const type = h < info.hoursFullDay - eps ? 'renfort_partiel' : 'renfort_jour';
+                  markAssign(info.key, asv.id, type, h, 65);
+                  addWH(asv.id, wn, h);
+                  rem = Q(rem - h);
+                }
+              }
+            }
           });
         });
 
@@ -1589,15 +1719,19 @@ const generateAstreintes = useCallback(()=>{
           const d=parseInt(key.slice(8));
           const info=dayInfoMap[d]; if(!info) return;
 
+          // Trier par order : ouvreur (0) en tête, fermeur (999) en queue
+          // → computeStaggered reçoit la liste dans le bon sens du roulement
           const matinIds=[], fullIds=[], fullHours={};
-          Object.entries(dayAssign).forEach(([aid,{type,hDay}])=>{
-            if(type==='renfort_matin'){
-              matinIds.push(aid);
-            } else {
-              fullIds.push(aid);
-              fullHours[aid]=hDay; // peut être < hoursFullDay si partiel
-            }
-          });
+          Object.entries(dayAssign)
+            .sort(([,a],[,b]) => a.order - b.order)
+            .forEach(([aid,{type,hDay}])=>{
+              if(type==='renfort_matin'){
+                matinIds.push(aid);
+              } else {
+                fullIds.push(aid);
+                fullHours[aid]=hDay;
+              }
+            });
 
           const dayData={};
 
