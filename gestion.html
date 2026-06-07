@@ -1611,12 +1611,16 @@ const generateAstreintes = useCallback(()=>{
 
         // ══════════════════════════════════════════════════════
         // PHASE 3 — Renfort journée : combler le quota restant
-        //  order 60 : slot intermédiaire (entre milieu Ph1 et fermeur Ph1)
+        //  • Tri des ASVs par heures croissantes : celles avec le moins
+        //    d'heures remplissent leur quota en premier (équilibre)
+        //  • order 60 : slot intermédiaire (entre milieu Ph1 et fermeur Ph1)
         // ══════════════════════════════════════════════════════
         sortedWeeks.forEach(wn => {
           const days = weekDaysMap[wn];
           const allDays = [...days].sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
-          asvs.forEach(asv => {
+          // Trier les ASVs par heures hebdo croissantes : les moins chargées d'abord
+          const asvsByH = [...asvs].sort((a,b) => getWH(a.id,wn) - getWH(b.id,wn));
+          asvsByH.forEach(asv => {
             allDays.forEach(d => {
               const rem = remH(asv.id, wn);
               if(rem < minSH - eps) return;
@@ -1652,13 +1656,18 @@ const generateAstreintes = useCallback(()=>{
             let delta = Q(actual - target); // >0 trop, <0 manque
 
             if(delta > eps) {
-              // Rogner sur le jour le mieux couvert (moins d'impact clinique)
+              // Rogner en priorité sur les jours avec couverture multiple
+              // (d'autres ASVs présents → pas de moment sans ASV)
               const assignedDays = days
                 .filter(d => dayInfoMap[d] && isOn(asv.id, dayInfoMap[d].key))
                 .sort((a,b) => dayInfoMap[b].vetCount - dayInfoMap[a].vetCount);
+
+              // Passe A : jours avec ≥2 ASVs → changement sûr en renfort_partiel
               for(const d of assignedDays) {
                 if(delta <= eps) break;
                 const info = dayInfoMap[d];
+                const otherASVs = Object.keys(assign[info.key] || {}).filter(oid => oid !== asv.id);
+                if(otherASVs.length === 0) continue; // seul ASV → préserver la couverture
                 const curr = assign[info.key]?.[asv.id];
                 if(!curr) continue;
                 const canTrim = Q(curr.hDay - minSH);
@@ -1668,6 +1677,25 @@ const generateAstreintes = useCallback(()=>{
                 assign[info.key][asv.id] = {...curr, hDay: Q(curr.hDay - trim), type: newType};
                 addWH(asv.id, wn, -trim);
                 delta = Q(delta - trim);
+              }
+
+              // Passe B : si toujours en dépassement, rogner les jours à couverture unique
+              // en réduisant hDay SANS changer le type (segments restent complets →
+              // la couverture est préservée, on ajuste seulement le compteur d'heures)
+              if(delta > eps) {
+                for(const d of assignedDays) {
+                  if(delta <= eps) break;
+                  const info = dayInfoMap[d];
+                  const curr = assign[info.key]?.[asv.id];
+                  if(!curr || curr.type === 'renfort_partiel') continue;
+                  const canTrim = Q(curr.hDay - minSH);
+                  if(canTrim <= eps) continue;
+                  const trim = Q(Math.min(delta, canTrim));
+                  // Garder le type original : les segments resteront pleine journée
+                  assign[info.key][asv.id] = {...curr, hDay: Q(curr.hDay - trim)};
+                  addWH(asv.id, wn, -trim);
+                  delta = Q(delta - trim);
+                }
               }
             } else if(delta < -eps) {
               // Allonger d'abord les jours déjà assignés (moins couvert = priorité)
