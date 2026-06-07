@@ -907,7 +907,7 @@
  const already = new Set(arr.flatMap(s=>s.vets||[]));
  let cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid) && !excluded.has(vid));
  if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !already.has(vid));
- if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName));
+ // NB : pas de 3e fallback sans filtre `already` — un véto ne peut pas être sur deux sous-créneaux simultanés du même slot (ex: aprem_A ET aprem_B)
  const chosen = pickVet(cands, (bias && !already.has(bias) && !excluded.has(bias)) ? bias : null);
  if(chosen) tgt.vets.push(chosen);
  };
@@ -991,10 +991,14 @@
      ? (subR.horaire==='matin_A' ? 'aprem_B' : 'aprem_A')
      : (subR.horaire==='aprem_A' ? 'matin_B' : 'matin_A');
    const crossSide = isMatSlot ? day.aprem : day.matin;
+   // inSide : tous les vétos déjà assignés sur ce demi-journée (matin ou aprem entier)
+   // → évite qu'un véto déjà sur aprem_B soit aussi ajouté sur aprem_A, et vice versa
+   const sideArr = isMatSlot ? day.matin : day.aprem;
    while(tgt.vets.length < subR.min){
      const inCross = vetsIn(crossSide, crossHoraire);
-     let cands = allVids.filter(vid=>canWork(vid,slotName) && !tgt.vets.includes(vid) && !inCross.has(vid));
-     if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !tgt.vets.includes(vid));
+     const inSide = new Set(sideArr.flatMap(s=>s.vets||[]));
+     let cands = allVids.filter(vid=>canWork(vid,slotName) && !inSide.has(vid) && !inCross.has(vid));
+     if(!cands.length) cands = allVids.filter(vid=>canWork(vid,slotName) && !inSide.has(vid));
      if(!cands.length) break;
      const chosen = pickVet(cands);
      if(!chosen || tgt.vets.includes(chosen)) break;
