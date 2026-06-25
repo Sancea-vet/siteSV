@@ -3,12 +3,15 @@
  * Auth déléguée à Cloudflare Access — aucune vérification de token ici.
  *
  * Routes :
- *   GET    /api/data   → charge toutes les données
- *   PUT    /api/data   → sauvegarde toutes les données
- *   DELETE /api/data   → efface toutes les données
+ *   GET    /api/data      → charge toutes les données
+ *   PUT    /api/data      → sauvegarde toutes les données
+ *   DELETE /api/data      → efface toutes les données
+ *   GET    /api/freepbx   → retourne le JSON de routing astreintes FreePBX
+ *   PUT    /api/freepbx   → stocke le JSON de routing astreintes FreePBX
  */
 
-const KV_KEY = 'planning_data_v1';
+const KV_KEY         = 'planning_data_v1';
+const FREEPBX_KV_KEY = 'freepbx_config';
 
 const CORS = {
   'Access-Control-Allow-Origin' : '*',
@@ -61,6 +64,29 @@ export async function onRequest(context) {
       return text('OK');
     } catch (err) {
       return text(`Erreur suppression: ${err.message}`, 500);
+    }
+  }
+
+  if (path === '/api/freepbx' && request.method === 'GET') {
+    try {
+      const raw = await env.PLANNING_KV.get(FREEPBX_KV_KEY);
+      return new Response(raw || '{}', {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'application/json' },
+      });
+    } catch (err) {
+      return text(`Erreur lecture FreePBX: ${err.message}`, 500);
+    }
+  }
+
+  if (path === '/api/freepbx' && request.method === 'PUT') {
+    try {
+      const body = await request.text();
+      JSON.parse(body); // validation JSON
+      await env.PLANNING_KV.put(FREEPBX_KV_KEY, body);
+      return json({ ok: true });
+    } catch (err) {
+      return text(`Erreur écriture FreePBX: ${err.message}`, 500);
     }
   }
 
