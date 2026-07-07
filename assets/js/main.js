@@ -3,49 +3,50 @@
             consultations: {
                 title: "Consultations",
                 icon: "🏥",
-                subtitle: "Médecine préventive et curative",
-                description: "La consultation est le pilier de la santé de votre animal. Lors de chaque visite, le vétérinaire réalise un examen clinique complet (auscultation cardiaque et pulmonaire, palpation abdominale, inspection des muqueuses, contrôle du poids et de l'état général). Nous prenons le temps d'écouter vos observations et de répondre à toutes vos questions. Chaque animal bénéficie d'un dossier médical informatisé permettant un suivi chronologique précis et une transmission sécurisée des informations entre les vétérinaires de l'équipe.",
+                subtitle: "Médecine générale et interne",
+                description: "La consultation est le pilier de la santé de votre animal. Après la prise en compte de l'historique et de l'anamnèse, lors de chaque visite, le vétérinaire réalise un examen clinique exhaustif. Nous nous engageons à répondre à l'ensemble de vos questions. Chaque animal bénéficie d'un dossier médical informatisé permettant un suivi chronologique précis et une transmission sécurisée des informations entre les vétérinaires de l'équipe.",
                 includes: [
-                    "Examen clinique complet et palpation",
-                    "Auscultation cardiaque et respiratoire",
+                    "Examen clinique exhaustif",
                     "Contrôle du poids et condition corporelle",
-                    "Conseils personnalisés nutrition et comportement",
+                    "Conseils personnalisés",
                     "Dossier médical informatisé et suivi chronologique",
-                    "Prise de sang et analyses si nécessaire"
+                    "Propositions des options thérapeutiques adaptées à chaque situation",
+                    "Nous proposons également des consultations dans nos domaines de compétences spécifiques : ophtalmologie, orthopédie, cardiologie, comportement"
+
                 ],
-                duration: "30 à 45 minutes",
-                price: "À partir de 48€",
+                duration: "20 à 60 minutes selon le motif de consultation",
+                price: "À partir de 45€",
                 availability: "Lundi au Samedi, sur rendez-vous"
             },
             vaccinations: {
                 title: "Vaccinations",
                 icon: "💉",
-                subtitle: "Protection optimale selon les protocoles officiels",
-                description: "La vaccination reste le meilleur moyen de protéger votre animal contre les maladies infectieuses graves. Nous suivons scrupuleusement les recommandations du Groupe d'Étude en Pathologie Infectieuse du BSAVA et de l'AFVAC. Chaque protocole est personnalisé selon l'âge, le mode de vie (intérieur/extérieur, voyages) et l'état de santé de votre compagnon. Nous utilisons des vaccins de dernière génération à vecteur recombinant, offrant une efficacité optimale avec une réactivité minimale.",
+                subtitle: "Médecine préventive selon les protocoles vaccinaux en cours de validité",
+                description: "La vaccination reste le meilleur moyen de protéger votre animal contre les maladies infectieuses graves. Nous suivons scrupuleusement les recommandations du Groupe d'Étude en Pathologie Infectieuse du BSAVA et de l'AFVAC. Chaque protocole est personnalisé selon l'âge, le mode de vie (intérieur/extérieur, voyages) et l'état de santé de votre compagnon.",
                 includes: [
-                    "Vaccination CHPPiL (chien) ou Typhus-Rhino-Leucose (chat)",
-                    "Vaccination rage (voyages et réglementation)",
-                    "Vaccination NAC (lapin myxomatose, lapinorrhage)",
-                    "Examen pré-vaccinal systématique",
-                    "Carnet de vaccination à jour et certificat international",
+                    "Protocole vaccinal personnalisé selon l'espèce et le mode de vie de l'animal",
+                    "Examen clinique pré vaccinal exhaustif et systématique",
+                    "Carnet de vaccination",
                     "Rappels personnalisés par email/SMS"
                 ],
-                duration: "20 à 30 minutes",
+                duration: "15 à 20 minutes",
                 price: "À partir de 55€ (vaccin + consultation)",
                 availability: "Lundi au Samedi, sur rendez-vous"
             },
             chirurgie: {
                 title: "Chirurgie",
                 icon: "🔬",
-                subtitle: "Bloc opératoire moderne et stérile",
-                description: "Notre bloc chirurgical est équipé d'un matériel de pointe : table hydraulique chauffante, appareil d'anesthésie gazeuse avec monitoring multiparamétrique (ECG, SpO2, capnographie, tension artérielle), bistouri électrique et lampe scialytique LED. Toutes les interventions sont réalisées sous anesthésie générale contrôlée avec un protocole de gestion de la douleur per et post-opératoire (multimodale). La stérilisation est assurée par autoclave classe B et le bloc respecte les normes d'asepsie hospitalière.",
+                subtitle: "Bloc opératoire moderne",
+                description: "La clinique vétérinaire Sancéa Vet dispose de deux blocs opératoires équipés de matériel de pointe (appareil d'anesthésie gazeuse, monitoring multi-paramétrique, lampe scialytique, microscope opératoire, ...). Les interventions chirurgicales sont réalisées sous anesthésie générale selon un protocole personnalisé et optimisé pour chaque patient. Chaque animal reçoit également une prise en charge continue de la douleur spécifique à sa condition physique et à son intervention pendant et après la chirurgie.",
                 includes: [
-                    "Anesthésie générale avec monitoring multiparamétrique",
-                    "Gestion de la douleur per et post-opératoire",
-                    "Chirurgie des tissus mous (stérilisation, castration, tumeurs)",
-                    "Chirurgie orthopédique (fractures, ligaments croisés)",
-                    "Chirurgie d'urgence (laparotomie, hémostase)",
-                    "Hospitalisation post-opératoire avec surveillance"
+                    "Anesthésie générale avec monitoring multi-paramétrique",
+                    "Gestion personnalisée de la douleur selon les protocoles actuels",
+                    "Chirurgie dite de convenance : stérilisation mâles et femelles",
+                    "Chirurgie des tissus mous : exérèse de masse, exérèse de tumeurs, biopsies, chirurgies abdominales, ...",
+                    "Chirurgie ophtalmologique : chirurgie des paupières, greffe cornéenne",
+                    "Chirurgie d'urgence : hémorragie interne, éventration, syndrome dilatation torsion de l'estomac, césarienne,...",
+                    "Chirurgie orthopédique : fracture, luxation, rupture des ligaments croisés, ...",
+                    "Hospitalisation post opératoire sous surveillance"
                 ],
                 duration: "Variable selon l'intervention",
                 price: "Devis personnalisé sur consultation",
@@ -57,7 +58,6 @@
                 subtitle: "Soins bucco-dentaires complets",
                 description: "Les maladies bucco-dentaires affectent plus de 80% des chiens et chats de plus de 3 ans. Notre service dentaire utilise un détartreur à ultrasons avec irrigation et aspiration, ainsi qu'une polisseuse dentaire. Chaque intervention débute par une radiographie dentaire complète permettant d'évaluer l'état des racines et de l'os alvéolaire. Les extractions sont réalisées avec une technique chirurgicale respectant le tissu osseux et les nerfs. Un contrôle à 2 semaines est systématiquement proposé.",
                 includes: [
-                    "Radiographie dentaire panoramique",
                     "Détartrage à ultrasons sous anesthésie",
                     "Polissage et fluoridation",
                     "Extractions chirurgicales si nécessaire",
@@ -76,13 +76,11 @@
                 includes: [
                     "Radiographie numérique DR (thorax, abdomen, os)",
                     "Échographie abdominale et cardiaque (Doppler)",
-                    "Scanner haute définition (nouveau 2026)",
-                    "Interprétation par imagerie spécialisée",
-                    "Compte-rendu détaillé avec images numériques",
+                    "Compte-rendu détaillé avec images",
                     "Transmission aux spécialistes externes si besoin"
                 ],
                 duration: "20 à 40 minutes",
-                price: "Radio à partir de 65€, Écho à partir de 85€",
+                price: "Radio à partir de 65€, Échographie à partir de 85€",
                 availability: "Lundi au Samedi, sur rendez-vous ou lors de consultations"
             },
             urgences: {
@@ -106,7 +104,7 @@
 
         // Team members data
         const teamData = {
-            sophie: {
+            adrien: {
                 name: "Dr. Adrien Le Leuch",
                 role: "Médecine interne & cardiologie",
                 image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=400&h=400&fit=crop",
@@ -114,11 +112,11 @@
                 bio: "Le Dr. Adrien Le Leuch est spécialiste en médecine interne et cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
                 diplomas: [
                     { year: "2021", name: "CEAV Médecine interne", school: "Collège Européen d'Anesthésie Vétérinaire" },
-                    { year: "2015", name: "Doctorat en Médecine Vétérinaire", school: "ENV" }
+                    { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
                 ],
                 specialties: "Cardiologie vétérinaire, médecine interne, maladies métaboliques, suivi de l'insuffisance cardiaque, diagnostics complexes et gestion des pathologies chroniques."
             },
-            lucas: {
+            maxime: {
                 name: "Dr. Maxime Bousses",
                 role: "Chirurgie, traumatologie ostéo-articulaire et orthopédie animale",
                 image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=400&h=400&fit=crop",
@@ -126,11 +124,11 @@
                 bio: "Le Dr. Maxime Bousses est notre spécialiste des interventions chirurgicales et des traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
                 diplomas: [
                     { year: "2022", name: "CES Traumatologie ostéo-articulaire et orthopédie animale", school: "Collège Européen Vétérinaire" },
-                    { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENV" }
+                    { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
                 ],
                 specialties: "Chirurgie orthopédique, prise en charge des fractures, traumatologie ostéo-articulaire, prothèses et fixateurs externes, réhabilitation post-opératoire."
             },
-            emma: {
+            lucie: {
                 name: "Dr. Lucie Lengellé",
                 role: "Comportement animal",
                 image: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=400&h=400&fit=crop",
@@ -138,11 +136,11 @@
                 bio: "Le Dr. Lucie Lengellé est spécialisée en comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
                     { year: "2023", name: "CEAV Médecine du comportement des animaux domestiques", school: "Collège Européen d'Anesthésie Vétérinaire" },
-                    { year: "2016", name: "Doctorat en Médecine Vétérinaire", school: "ENV" }
+                    { year: "2016", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
                 specialties: "Évaluation du comportement, prise en charge des troubles du comportement, rééducation comportementale, socialisation et adaptation des animaux domestiques, approche positive et scientifique."
             },
-            julie: {
+            alexis: {
                 name: "Dr. Alexis Racine",
                 role: "Ophtalmologie",
                 image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=400&h=400&fit=crop",
@@ -150,7 +148,7 @@
                 bio: "Le Dr. Alexis Racine est spécialisé en ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
                 diplomas: [
                     { year: "2024", name: "DE d'Ophtalmologie", school: "Collège Européen Vétérinaire" },
-                    { year: "2017", name: "Doctorat en Médecine Vétérinaire", school: "ENV" }
+                    { year: "2017", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
                 specialties: "Examens oculaires approfondis, chirurgie ophtalmologique, prise en charge des infections et inflammations oculaires, gestion des glaucomes et des troubles de la vision, consultations de suivi post-opératoire."
             }
