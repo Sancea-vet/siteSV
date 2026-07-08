@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculateur de prix d'actes — Clinique vétérinaire</title>
+<style>
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --ink:#1f2a37; --muted:#6b7280;
+    --line:#e5e7eb; --accent:#0d7d6f; --accent-soft:#e6f4f1;
+    --warn:#b45309; --ok:#0d7d6f; --shadow:0 1px 3px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:var(--bg);color:var(--ink);line-height:1.45;font-size:15px}
+  header{background:linear-gradient(135deg,#0d7d6f,#0a6357);color:#fff;padding:22px 20px}
+  header h1{margin:0;font-size:20px;font-weight:650}
+  header p{margin:4px 0 0;font-size:13px;opacity:.9}
+  .wrap{max-width:1080px;margin:0 auto;padding:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:18px 18px 20px;margin-bottom:18px}
+  .card h2{margin:0 0 4px;font-size:15px;letter-spacing:.02em;text-transform:uppercase;color:var(--accent)}
+  .card .sub{margin:0 0 14px;font-size:13px;color:var(--muted)}
+  .grid{display:grid;gap:14px}
+  .g3{grid-template-columns:repeat(3,1fr)}
+  .g4{grid-template-columns:repeat(4,1fr)}
+  @media(max-width:720px){.g3,.g4{grid-template-columns:1fr 1fr}}
+  @media(max-width:460px){.g3,.g4{grid-template-columns:1fr}}
+  label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:5px;font-weight:500}
+  input[type=number],input[type=text]{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;
+    font-size:15px;font-family:inherit;background:#fff;color:var(--ink)}
+  input:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+  .derived{background:var(--accent-soft);border-radius:8px;padding:12px 14px;display:flex;flex-wrap:wrap;gap:22px;margin-top:6px}
+  .derived div{font-size:13px;color:var(--muted)}
+  .derived b{display:block;font-size:18px;color:var(--ink);font-weight:650}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:8px 6px;text-align:right;border-bottom:1px solid var(--line)}
+  th{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);font-weight:600;vertical-align:bottom}
+  th.l,td.l{text-align:left}
+  td input{padding:7px 8px;font-size:14px;min-width:64px}
+  td input.name{min-width:130px}
+  .cost{color:var(--muted);font-variant-numeric:tabular-nums}
+  .price{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;font-size:15px}
+  .marge{font-variant-numeric:tabular-nums}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:14px;
+    font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:hover{background:#0a6357}
+  .btn.ghost{background:#fff;color:var(--accent);border:1px solid var(--accent)}
+  .del{background:none;border:none;color:#c0392b;cursor:pointer;font-size:16px;padding:2px 6px;line-height:1}
+  .toolbar{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+  .note{font-size:12.5px;color:var(--muted);margin-top:10px}
+  .foot{font-size:12px;color:var(--muted);text-align:center;padding:6px 0 24px}
+  .tag{display:inline-block;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;
+    padding:2px 8px;border-radius:20px;margin-left:6px}
+  .totrow td{border-top:2px solid var(--ink);font-weight:700;background:#fafbfc}
+  details summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<header>
+  <h1>Calculateur de prix d'actes <span class="tag">HT</span></h1>
+  <p>Clinique vétérinaire — prix conseillé selon le coût réel et votre marge</p>
+</header>
+
+<div class="wrap">
+
+  <!-- PARAMÈTRES -->
+  <div class="card">
+    <h2>1 · Paramètres du cabinet</h2>
+    <p class="sub">Réglez ces valeurs une fois. Elles servent à calculer le coût horaire fixe et le coût de l'ASV.</p>
+    <div class="grid g4">
+      <div><label>Loyer (€/mois)</label><input type="number" id="loyer" value="10000" step="100"></div>
+      <div><label>Électricité (€/mois)</label><input type="number" id="elec" value="600" step="50"></div>
+      <div><label>Autres charges fixes (€/mois)</label><input type="number" id="autres" value="0" step="50"></div>
+      <div><label>Heures d'ouverture / mois</label><input type="number" id="heuresOuv" value="180" step="5"></div>
+    </div>
+    <div class="grid g4" style="margin-top:14px">
+      <div><label>Tarif vétérinaire (€/h HT)</label><input type="number" id="tarifVeto" value="75" step="1"></div>
+      <div><label>Salaire ASV chargé (€/mois)</label><input type="number" id="asvMois" value="3500" step="50"></div>
+      <div><label>Heures ASV / semaine</label><input type="number" id="asvHSem" value="35" step="1"></div>
+      <div><label>Marge par défaut (%)</label><input type="number" id="margeDef" value="35" step="1"></div>
+    </div>
+    <div class="derived" id="derived"></div>
+    <p class="note">Coût fixe/heure = (loyer + électricité + autres) ÷ heures d'ouverture par mois. Coût ASV/heure = salaire mensuel ÷ (heures/semaine × 4,33).</p>
+  </div>
+
+  <!-- AMORTISSEMENT -->
+  <div class="card">
+    <h2>2 · Amortissement du matériel</h2>
+    <p class="sub">Entrez le <b>prix de l'appareil</b>, sa durée de vie et le nombre d'actes qu'il réalise par an. Le coût par acte se calcule tout seul — reportez-le (ou copiez-le) dans la colonne « Amort. » du tableau des actes.</p>
+    <div style="overflow-x:auto">
+    <table id="tblMat">
+      <thead>
+        <tr>
+          <th class="l">Appareil</th>
+          <th>Prix<br>(€)</th>
+          <th>Durée de vie<br>(ans)</th>
+          <th>Actes<br>/ an</th>
+          <th>Coût / acte<br>(€)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rowsMat"></tbody>
+    </table>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="addMat">+ Ajouter un appareil</button>
+      <button class="btn ghost" id="resetMat">Réinitialiser les exemples</button>
+    </div>
+    <p class="note">Coût / acte = prix ÷ (durée de vie × actes par an). Exemple : radio 20 000 € ÷ (7 ans × 500 actes) = 5,71 € par acte.</p>
+  </div>
+
+  <!-- ACTES -->
+  <div class="card">
+    <h2>3 · Vos actes</h2>
+    <p class="sub">Pour chaque acte, saisissez les durées (en minutes) et les coûts variables. Le prix conseillé se met à jour automatiquement.</p>
+    <div style="overflow-x:auto">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th class="l">Acte</th>
+          <th>Durée<br>(min)</th>
+          <th>Temps véto<br>(min)</th>
+          <th>Temps ASV<br>(min)</th>
+          <th>Consomm.<br>(€)</th>
+          <th>Amort.<br>(€)</th>
+          <th>Marge<br>(%)</th>
+          <th>Coût<br>(€)</th>
+          <th>Prix HT<br>(€)</th>
+          <th>Bénéf.<br>(€)</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+      <tfoot>
+        <tr class="totrow">
+          <td class="l">TOTAL / moyenne</td>
+          <td colspan="6"></td>
+          <td class="cost" id="tCost">—</td>
+          <td class="price" id="tPrice">—</td>
+          <td class="marge" id="tMarge">—</td>
+          <td></td>
+        </tr>
+      </tfoot>
+    </table>
+    </div>
+    <div class="toolbar">
+      <button class="btn" id="add">+ Ajouter un acte</button>
+      <button class="btn ghost" id="reset">Réinitialiser les exemples</button>
+    </div>
+    <p class="note">Astuce : laissez le champ « Marge » vide pour utiliser la marge par défaut. La marge % s'applique sur le coût (prix = coût × (1 + marge)).</p>
+  </div>
+
+  <!-- DÉTAIL -->
+  <div class="card">
+    <details>
+      <summary>Comment le prix est-il calculé ? (détail du coût)</summary>
+      <p class="note" style="margin-top:12px">
+        <b>Coût d'un acte</b> =
+        coût fixe/heure × (durée/60)
+        + tarif véto × (temps véto/60)
+        + coût ASV/heure × (temps ASV/60)
+        + consommables
+        + amortissement matériel.<br><br>
+        <b>Prix conseillé HT</b> = coût × (1 + marge %).
+        Le bénéfice affiché est prix − coût. Tous les montants sont HT ; ajoutez la TVA applicable pour le prix client TTC.
+      </p>
+    </details>
+  </div>
+
+  <p class="foot">Calculateur local — aucune donnée n'est envoyée. Modifiez librement les valeurs.</p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const euro = n => (isFinite(n)?n:0).toLocaleString('fr-FR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+
+const P = ['loyer','elec','autres','heuresOuv','tarifVeto','asvMois','asvHSem','margeDef'];
+function params(){const o={};P.forEach(k=>o[k]=parseFloat($(k).value)||0);return o;}
+
+function fixedPerHour(p){const h=p.heuresOuv>0?p.heuresOuv:1;return (p.loyer+p.elec+p.autres)/h;}
+function asvPerHour(p){const h=(p.asvHSem>0?p.asvHSem:1)*(52/12);return p.asvMois/h;}
+
+const defaults = [
+  {nom:'Consultation simple', duree:20, veto:15, asv:5,  conso:3,  amort:1,  marge:''},
+  {nom:'Vaccination',         duree:20, veto:10, asv:10, conso:15, amort:1,  marge:''},
+  {nom:'Castration chat',     duree:45, veto:35, asv:30, conso:25, amort:8,  marge:''},
+  {nom:'Radiographie',        duree:25, veto:15, asv:15, conso:5,  amort:20, marge:''},
+];
+let acts = JSON.parse(JSON.stringify(defaults));
+
+function calcRow(a,p){
+  const cost = fixedPerHour(p)*(a.duree/60)
+             + p.tarifVeto*(a.veto/60)
+             + asvPerHour(p)*(a.asv/60)
+             + (parseFloat(a.conso)||0)
+             + (parseFloat(a.amort)||0);
+  const m = (a.marge===''||a.marge===null||isNaN(parseFloat(a.marge)))?p.margeDef:parseFloat(a.marge);
+  const price = cost*(1+m/100);
+  return {cost, price, benef:price-cost};
+}
+
+function renderDerived(){
+  const p=params();
+  $('derived').innerHTML =
+    `<div>Coût fixe / heure d'ouverture<b>${euro(fixedPerHour(p))}</b></div>
+     <div>Coût ASV / heure<b>${euro(asvPerHour(p))}</b></div>
+     <div>Coût véto / heure<b>${euro(p.tarifVeto)}</b></div>`;
+}
+
+function renderRows(){
+  const p=params();
+  const tb=$('rows'); tb.innerHTML='';
+  let tc=0,tp=0,tb2=0;
+  acts.forEach((a,i)=>{
+    const r=calcRow(a,p); tc+=r.cost; tp+=r.price; tb2+=r.benef;
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td class="l"><input class="name" type="text" value="${a.nom.replace(/"/g,'&quot;')}" data-i="${i}" data-f="nom"></td>
+       <td><input type="number" value="${a.duree}" data-i="${i}" data-f="duree"></td>
+       <td><input type="number" value="${a.veto}" data-i="${i}" data-f="veto"></td>
+       <td><input type="number" value="${a.asv}" data-i="${i}" data-f="asv"></td>
+       <td><input type="number" value="${a.conso}" data-i="${i}" data-f="conso"></td>
+       <td><input type="number" value="${a.amort}" data-i="${i}" data-f="amort"></td>
+       <td><input type="number" value="${a.marge}" placeholder="${p.margeDef}" data-i="${i}" data-f="marge"></td>
+       <td class="cost">${euro(r.cost)}</td>
+       <td class="price">${euro(r.price)}</td>
+       <td class="marge">${euro(r.benef)}</td>
+       <td><button class="del" data-del="${i}" title="Supprimer">✕</button></td>`;
+    tb.appendChild(tr);
+  });
+  $('tCost').textContent=euro(tc);
+  $('tPrice').textContent=euro(tp);
+  $('tMarge').textContent=euro(tb2);
+}
+
+/* ---- Amortissement matériel ---- */
+const matDefaults=[
+  {nom:'Appareil de radiographie', prix:20000, vie:7, actesAn:500},
+  {nom:'Échographe',               prix:15000, vie:8, actesAn:400},
+  {nom:'Autoclave (stérilisation)',prix:4000,  vie:10,actesAn:800},
+];
+let mats=JSON.parse(JSON.stringify(matDefaults));
+function matCost(m){const d=(m.vie||0)*(m.actesAn||0);return d>0?m.prix/d:0;}
+function renderMat(){
+  const tb=$('rowsMat'); tb.innerHTML='';
+  mats.forEach((m,i)=>{
+    const c=matCost(m);
+    const tr=document.createElement('tr');
+    tr.innerHTML=
+      `<td class="l"><input class="name" type="text" value="${m.nom.replace(/"/g,'&quot;')}" data-mi="${i}" data-mf="nom"></td>
+       <td><input type="number" value="${m.prix}" data-mi="${i}" data-mf="prix"></td>
+       <td><input type="number" value="${m.vie}" data-mi="${i}" data-mf="vie"></td>
+       <td><input type="number" value="${m.actesAn}" data-mi="${i}" data-mf="actesAn"></td>
+       <td class="price" data-mcost="${i}">${euro(c)}</td>
+       <td>
+         <button class="btn ghost" style="padding:5px 10px;font-size:12px" data-mcopy="${i}" title="Copier le coût par acte">Copier</button>
+         <button class="del" data-mdel="${i}" title="Supprimer">✕</button>
+       </td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function renderAll(){renderDerived();renderRows();renderMat();}
+
+document.addEventListener('input',e=>{
+  const t=e.target;
+  if(P.includes(t.id)){renderAll();return;}
+  if(t.dataset.mf!==undefined){
+    const i=+t.dataset.mi, f=t.dataset.mf;
+    mats[i][f]= f==='nom' ? t.value : (parseFloat(t.value)||0);
+    t.closest('tr').querySelector('[data-mcost]').textContent=euro(matCost(mats[i]));
+    return;
+  }
+  if(t.dataset.f!==undefined){
+    const i=+t.dataset.i, f=t.dataset.f;
+    acts[i][f]= f==='nom'||f==='marge' ? t.value : (parseFloat(t.value)||0);
+    // recalc without full re-render to keep focus
+    const p=params(), r=calcRow(acts[i],p);
+    const row=t.closest('tr');
+    row.children[7].textContent=euro(r.cost);
+    row.children[8].textContent=euro(r.price);
+    row.children[9].textContent=euro(r.benef);
+    let tc=0,tp=0,tb2=0; acts.forEach(a=>{const x=calcRow(a,p);tc+=x.cost;tp+=x.price;tb2+=x.benef;});
+    $('tCost').textContent=euro(tc);$('tPrice').textContent=euro(tp);$('tMarge').textContent=euro(tb2);
+  }
+});
+document.addEventListener('click',e=>{
+  const t=e.target;
+  if(t.dataset.del!==undefined){acts.splice(+t.dataset.del,1);renderRows();return;}
+  if(t.dataset.mdel!==undefined){mats.splice(+t.dataset.mdel,1);renderMat();return;}
+  if(t.dataset.mcopy!==undefined){
+    const c=matCost(mats[+t.dataset.mcopy]);
+    const val=(Math.round(c*100)/100).toFixed(2).replace('.',',');
+    navigator.clipboard&&navigator.clipboard.writeText(val);
+    const old=t.textContent; t.textContent='Copié ✓';
+    setTimeout(()=>t.textContent=old,1200);
+    return;
+  }
+});
+$('addMat').onclick=()=>{mats.push({nom:'Nouvel appareil',prix:0,vie:7,actesAn:100});renderMat();};
+$('resetMat').onclick=()=>{mats=JSON.parse(JSON.stringify(matDefaults));renderMat();};
+$('add').onclick=()=>{acts.push({nom:'Nouvel acte',duree:20,veto:15,asv:5,conso:0,amort:0,marge:''});renderRows();};
+$('reset').onclick=()=>{acts=JSON.parse(JSON.stringify(defaults));renderRows();};
+
+renderAll();
+</script>
+</body>
+</html>
