@@ -58,8 +58,8 @@ export async function onRequestPost(context) {
     const isReferral = formData.formType === 'referral';
 
     const toEmail = isReferral
-      ? (env.REFERRAL_TO_EMAIL || 'aleleuch@icloud.com')
-      : (env.TO_EMAIL || 'adrien.leleuch.envt@gmail.com');
+      ? (env.REFERRAL_TO_EMAIL || 'refere@sanceavet.fr')
+      : (env.TO_EMAIL || 'contact@sanceavet.fr');
 
     const fromEmail = env.FROM_EMAIL || 'contact@sanceavet.fr';
 
@@ -82,10 +82,10 @@ export async function onRequestPost(context) {
         });
       }
 
-      subject = `Référencement — ${formData.patientName} (Dr ${formData.vetName})`;
+      subject = `Référer un patient — ${formData.patientName} (Dr ${formData.vetName})`;
 
       htmlBody = `
-<h3>Référencement vétérinaire</h3>
+<h3>Référer un patient vétérinaire</h3>
 
 <b>Vétérinaire:</b> ${escapeHtml(formData.vetName)}<br>
 <b>Email:</b> ${escapeHtml(formData.vetEmail)}<br>

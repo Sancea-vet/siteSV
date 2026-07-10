@@ -56,7 +56,7 @@
                 title: "Dentisterie",
                 icon: "🦷",
                 subtitle: "Soins bucco-dentaires complets",
-                description: "Les maladies bucco-dentaires affectent plus de 80% des chiens et chats de plus de 3 ans. Notre service dentaire utilise un détartreur à ultrasons avec irrigation et aspiration, ainsi qu'une polisseuse dentaire. Chaque intervention débute par une radiographie dentaire complète permettant d'évaluer l'état des racines et de l'os alvéolaire. Les extractions sont réalisées avec une technique chirurgicale respectant le tissu osseux et les nerfs. Un contrôle à 2 semaines est systématiquement proposé.",
+                description: "Notre service dentaire utilise un détartreur à ultrasons avec irrigation et aspiration, ainsi qu'une polisseuse dentaire. Nous réalisons : détartrage, polissage et extractions dentaires quand cela est nécessaire. Les soins sont réalisés sous anesthésie générale avec une analgésie adaptée.",
                 includes: [
                     "Détartrage à ultrasons sous anesthésie",
                     "Polissage et fluoridation",
@@ -65,21 +65,21 @@
                     "Conseils d'hygiène dentaire à domicile"
                 ],
                 duration: "45 à 90 minutes (sous anesthésie)",
-                price: "À partir de 180€ (détartrage + radio)",
-                availability: "Sur rendez-vous, mardi et jeudi matin"
+                price: "À partir de 180€",
+                availability: "Du lundi au vendredi, sur rendez-vous"
             },
             imagerie: {
                 title: "Imagerie Médicale",
                 icon: "🩺",
                 subtitle: "Diagnostic par l'image de haute précision",
-                description: "Notre plateau technique d'imagerie a été entièrement renouvelé en 2026. Il comprend un appareil de radiographie numérique DR (dose réduite, haute définition), un échographe Doppler couleur avec sondes sectorielle, linéaire et micro-convexe (adapté aux petits animaux et aux NAC), et notre nouveau scanner à rayons X haute définition. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
+                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, dents, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.", 
                 includes: [
                     "Radiographie numérique DR (thorax, abdomen, os)",
                     "Échographie abdominale et cardiaque (Doppler)",
                     "Compte-rendu détaillé avec images",
                     "Transmission aux spécialistes externes si besoin"
                 ],
-                duration: "20 à 40 minutes",
+                duration: "20 à 60 minutes",
                 price: "Radio à partir de 65€, Échographie à partir de 85€",
                 availability: "Lundi au Samedi, sur rendez-vous ou lors de consultations"
             },
