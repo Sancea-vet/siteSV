@@ -94,6 +94,15 @@
         .message.success { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
         .message.error { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
         .message .msg-icon { font-size: 1.25rem; }
+        /* Préambule d'information */
+        .form-intro { background: var(--primary-light); border-left: 4px solid var(--primary); border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 2rem; }
+        .form-intro p { color: var(--text); font-size: 0.95rem; line-height: 1.7; margin: 0 0 0.75rem; }
+        .form-intro p:last-child { margin-bottom: 0; }
+        /* Consentement RGPD */
+        .consent-group { display: flex; align-items: flex-start; gap: 0.75rem; margin-top: 1.5rem; text-align: left; }
+        .consent-group input[type="checkbox"] { margin-top: 0.2rem; width: 18px; height: 18px; flex-shrink: 0; accent-color: var(--primary); cursor: pointer; }
+        .consent-group label { font-size: 0.95rem; color: var(--text); cursor: pointer; }
+        .consent-group label .required { color: #ef4444; margin-left: 0.25rem; }
         /* Honeypot caché */
         .hp-field { display: none !important; visibility: hidden; opacity: 0; position: absolute; left: -9999px; }
         @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } .form-wrapper { padding: 1.5rem; } .hero-container { padding: 7rem 1.5rem 2rem; } }
@@ -166,6 +175,11 @@
                 <div class="form-header">
                     <h2>Formulaire pour référer un patient</h2>
                     <p>Veuillez remplir tous les champs obligatoires marqués d'une étoile</p>
+                </div>
+
+                <div class="form-intro">
+                    <p>Ce formulaire est réservé aux vétérinaires. Il permet d'adresser une demande de référence d'un patient afin de faciliter la prise des prochains rendez-vous du propriétaire et de préparer au mieux sa prochaine visite.</p>
+                    <p>Conformément au Règlement général sur la protection des données (RGPD), nous vous informons que les données renseignées dans ce formulaire seront enregistrées dans notre fichier client.</p>
                 </div>
 
                 <div class="message success" id="successMsg">
@@ -302,6 +316,11 @@
                             <input type="file" id="fileInput" name="attachments" multiple accept=".jpg,.jpeg,.png,.pdf">
                         </div>
                         <div class="file-list" id="fileList"></div>
+                    </div>
+
+                    <div class="form-group full-width consent-group">
+                        <input type="checkbox" id="consent" name="consent" required>
+                        <label for="consent">J'accepte que les données renseignées soient enregistrées.<span class="required">*</span></label>
                     </div>
 
                     <div class="form-submit">
