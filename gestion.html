@@ -4081,7 +4081,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       return(
         <div style={{maxWidth:680}}>
           <h2 className="section-title">Équipe vétérinaire</h2>
-          <p className="section-desc">L'email Google Workspace sert à envoyer les invitations de planning.</p>
+          <p className="section-desc">L'email de chaque vétérinaire sert à envoyer les invitations de planning (Google Workspace) et à router les messages du répondeur vers le vétérinaire d'astreinte (export FreePBX / n8n).</p>
           <div className="g-card" style={{marginBottom:20}}>
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:12,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Ajouter</h3>
             <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'flex-end'}}>
@@ -4971,8 +4971,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           if(!mV&&!sV) continue;
           config.routing.push({
             date: key,
-            midi: mV?{name:mV.name,phone:mV.phone||'',email:mV.email}:null,
-            soir: sV?{name:sV.name,phone:sV.phone||'',email:sV.email}:null,
+            midi: mV?{name:mV.name,phone:mV.phone||'',email:mV.email||''}:null,
+            soir: sV?{name:sV.name,phone:sV.phone||'',email:sV.email||''}:null,
           });
         }
         return JSON.stringify(config, null, 2);
