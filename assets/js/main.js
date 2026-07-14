@@ -50,7 +50,7 @@
                 ],
                 duration: "Variable selon l'intervention",
                 price: "Devis personnalisé sur consultation",
-                availability: "Lundi au Vendredi (programmées), 24/7 (urgences)"
+                availability: "Lundi au Vendredi (programmées), astreinte (urgences)"
             },
             dentisterie: {
                 title: "Dentisterie",
@@ -84,10 +84,10 @@
                 availability: "Lundi au Samedi, sur rendez-vous ou lors de consultations"
             },
             urgences: {
-                title: "Urgences 24/7",
+                title: "Urgences & astreinte",
                 icon: "🚑",
-                subtitle: "Service permanent pour les situations critiques",
-                description: "Notre service d'urgences est opérationnel 24 heures sur 24, 7 jours sur 7, 365 jours par an, pour nos patients et ceux qui n'ont pas de vétérinaire traitant. En cas d'urgence, il faut impérativement contacter en priorité votre vétérinaire traitant qui vous orientera vers une solution de prise en charge. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
+                subtitle: "Service d'astreinte en dehors des horaires d'ouverture",
+                description: "En dehors des horaires d'ouverture, la continuité des soins est assurée par un service d'astreinte, pour nos patients comme pour les animaux sans vétérinaire traitant. Il s'agit d'une astreinte téléphonique : aucun vétérinaire n'est présent en permanence sur place, il est donc indispensable d'appeler avant tout déplacement. En cas d'urgence, contactez en priorité votre vétérinaire traitant, qui vous orientera vers la solution de prise en charge la plus adaptée. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
                 includes: [
                     "Tri et évaluation vitale immédiate",
                     "Oxygénothérapie et réanimation cardio-pulmonaire",
@@ -97,7 +97,7 @@
                 ],
                 duration: "Immédiat",
                 price: "Consultation urgences en journée : 55€<br>Consultation urgences nuit / week-end / jour férié : à partir de 120€",
-                availability: "24h/24 - 7j/7 - 365j/an, appeler avant arrivée"
+                availability: "En dehors des horaires d'ouverture — astreinte téléphonique, appeler avant tout déplacement"
             }
         };
 
