@@ -82,10 +82,10 @@ export async function onRequestPost(context) {
         });
       }
 
-      subject = `Référencement — ${formData.patientName} (Dr ${formData.vetName})`;
+      subject = `Référer un patient — ${formData.patientName} (Dr ${formData.vetName})`;
 
       htmlBody = `
-<h3>Référencement vétérinaire</h3>
+<h3>Référer un patient</h3>
 
 <b>Vétérinaire:</b> ${escapeHtml(formData.vetName)}<br>
 <b>Email:</b> ${escapeHtml(formData.vetEmail)}<br>
