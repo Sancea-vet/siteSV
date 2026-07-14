@@ -56,7 +56,7 @@
                 title: "Dentisterie",
                 icon: "🦷",
                 subtitle: "Soins bucco-dentaires complets",
-                description: "Les maladies bucco-dentaires affectent plus de 80% des chiens et chats de plus de 3 ans. Notre service dentaire utilise un détartreur à ultrasons avec irrigation et aspiration, ainsi qu'une polisseuse dentaire. Chaque intervention débute par une radiographie dentaire complète permettant d'évaluer l'état des racines et de l'os alvéolaire. Les extractions sont réalisées avec une technique chirurgicale respectant le tissu osseux et les nerfs. Un contrôle à 2 semaines est systématiquement proposé.",
+                description: "Nous réalisons : détartrage, polissage et extractions dentaires quand cela est nécessaire. Les soins sont réalisés sous anesthésie générale avec une analgésie adaptée.",
                 includes: [
                     "Détartrage à ultrasons sous anesthésie",
                     "Polissage et fluoridation",
@@ -65,21 +65,21 @@
                     "Conseils d'hygiène dentaire à domicile"
                 ],
                 duration: "45 à 90 minutes (sous anesthésie)",
-                price: "À partir de 180€ (détartrage + radio)",
-                availability: "Sur rendez-vous, mardi et jeudi matin"
+                price: "À partir de 180€",
+                availability: "Du lundi au vendredi, sur rendez-vous"
             },
             imagerie: {
                 title: "Imagerie Médicale",
                 icon: "🩺",
                 subtitle: "Diagnostic par l'image de haute précision",
-                description: "Notre plateau technique d'imagerie a été entièrement renouvelé en 2026. Il comprend un appareil de radiographie numérique DR (dose réduite, haute définition), un échographe Doppler couleur avec sondes sectorielle, linéaire et micro-convexe (adapté aux petits animaux et aux NAC), et notre nouveau scanner à rayons X haute définition. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
+                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, dents, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
                 includes: [
                     "Radiographie numérique DR (thorax, abdomen, os)",
                     "Échographie abdominale et cardiaque (Doppler)",
                     "Compte-rendu détaillé avec images",
                     "Transmission aux spécialistes externes si besoin"
                 ],
-                duration: "20 à 40 minutes",
+                duration: "20 à 60 minutes",
                 price: "Radio à partir de 65€, Échographie à partir de 85€",
                 availability: "Lundi au Samedi, sur rendez-vous ou lors de consultations"
             },
@@ -87,17 +87,16 @@
                 title: "Urgences 24/7",
                 icon: "🚑",
                 subtitle: "Service permanent pour les situations critiques",
-                description: "Notre service d'urgences est opérationnel 24 heures sur 24, 7 jours sur 7, 365 jours par an. Une équipe de garde (vétérinaire + ASV) est présente en permanence pour prendre en charge les traumatismes, intoxications, détresses respiratoires ou cardiaques, collapsus, dystocies et toute situation vitale. Le bloc d'urgence dispose d'un matériel de réanimation (oxygénothérapie, défibrillateur, perfuseurs électriques) et d'une salle d'hospitalisation intensive avec cages chauffantes et monitoring continu.",
+                description: "Notre service d'urgences est opérationnel 24 heures sur 24, 7 jours sur 7, 365 jours par an, pour nos patients et ceux qui n'ont pas de vétérinaire traitant. En cas d'urgence, il faut impérativement contacter en priorité votre vétérinaire traitant qui vous orientera vers une solution de prise en charge. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
                 includes: [
                     "Tri et évaluation vitale immédiate",
                     "Oxygénothérapie et réanimation cardio-pulmonaire",
                     "Perfusion et stabilisation",
                     "Sutures et traitement des plaies",
-                    "Hospitalisation intensive avec surveillance",
                     "Liaison avec centres de référence si spécialisation requise"
                 ],
                 duration: "Immédiat",
-                price: "Frais d'urgence : 85€ (incluant l'acte de base)",
+                price: "Consultation urgences en journée : 55€<br>Consultation urgences nuit / week-end / jour férié : à partir de 120€",
                 availability: "24h/24 - 7j/7 - 365j/an, appeler avant arrivée"
             }
         };
