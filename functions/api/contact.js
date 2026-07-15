@@ -58,8 +58,8 @@ export async function onRequestPost(context) {
     const isReferral = formData.formType === 'referral';
 
     const toEmail = isReferral
-      ? (env.REFERRAL_TO_EMAIL || 'refere@sanceavet.fr')
-      : (env.TO_EMAIL || 'contact@sanceavet.fr');
+      ? (env.REFERRAL_TO_EMAIL || 'aleleuch@icloud.com')
+      : (env.TO_EMAIL || 'adrien.leleuch.envt@gmail.com');
 
     const fromEmail = env.FROM_EMAIL || 'contact@sanceavet.fr';
 
@@ -84,8 +84,14 @@ export async function onRequestPost(context) {
 
       subject = `Référer un patient — ${formData.patientName} (Dr ${formData.vetName})`;
 
+      const careTypeLabels = {
+        'prise-en-charge-globale': 'Prise en charge globale',
+        'examen-complementaire-isole': 'Examen complémentaire isolé'
+      };
+      const careTypeLabel = careTypeLabels[formData.careType] || formData.careType || 'Non renseigné';
+
       htmlBody = `
-<h3>Référer un patient vétérinaire</h3>
+<h3>Référer un patient</h3>
 
 <b>Vétérinaire:</b> ${escapeHtml(formData.vetName)}<br>
 <b>Email:</b> ${escapeHtml(formData.vetEmail)}<br>
@@ -97,7 +103,8 @@ Nom: ${escapeHtml(formData.patientName)}<br>
 Espèce: ${escapeHtml(formData.patientSpecies)}<br>
 
 <h4>Motif</h4>
-${escapeHtml(formData.referralReason)}
+${escapeHtml(formData.referralReason)}<br>
+<b>Type de prise en charge souhaité:</b> ${escapeHtml(careTypeLabel)}
 
 <h4>Historique</h4>
 ${escapeHtml(formData.clinicalHistory).replace(/\n/g, '<br>')}

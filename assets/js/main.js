@@ -50,13 +50,13 @@
                 ],
                 duration: "Variable selon l'intervention",
                 price: "Devis personnalisé sur consultation",
-                availability: "Lundi au Vendredi (programmées), 24/7 (urgences)"
+                availability: "Lundi au Vendredi (programmées), astreinte (urgences)"
             },
             dentisterie: {
                 title: "Dentisterie",
                 icon: "🦷",
                 subtitle: "Soins bucco-dentaires complets",
-                description: "Notre service dentaire utilise un détartreur à ultrasons avec irrigation et aspiration, ainsi qu'une polisseuse dentaire. Nous réalisons : détartrage, polissage et extractions dentaires quand cela est nécessaire. Les soins sont réalisés sous anesthésie générale avec une analgésie adaptée.",
+                description: "Nous réalisons : détartrage, polissage et extractions dentaires quand cela est nécessaire. Les soins sont réalisés sous anesthésie générale avec une analgésie adaptée.",
                 includes: [
                     "Détartrage à ultrasons sous anesthésie",
                     "Polissage et fluoridation",
@@ -72,7 +72,7 @@
                 title: "Imagerie Médicale",
                 icon: "🩺",
                 subtitle: "Diagnostic par l'image de haute précision",
-                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, dents, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.", 
+                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, dents, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
                 includes: [
                     "Radiographie numérique DR (thorax, abdomen, os)",
                     "Échographie abdominale et cardiaque (Doppler)",
@@ -84,21 +84,20 @@
                 availability: "Lundi au Samedi, sur rendez-vous ou lors de consultations"
             },
             urgences: {
-                title: "Urgences 24/7",
+                title: "Urgences & astreinte",
                 icon: "🚑",
-                subtitle: "Service permanent pour les situations critiques",
-                description: "Notre service d'urgences est opérationnel 24 heures sur 24, 7 jours sur 7, 365 jours par an. Une équipe de garde (vétérinaire + ASV) est présente en permanence pour prendre en charge les traumatismes, intoxications, détresses respiratoires ou cardiaques, collapsus, dystocies et toute situation vitale. Le bloc d'urgence dispose d'un matériel de réanimation (oxygénothérapie, défibrillateur, perfuseurs électriques) et d'une salle d'hospitalisation intensive avec cages chauffantes et monitoring continu.",
+                subtitle: "Service d'astreinte en dehors des horaires d'ouverture",
+                description: "En dehors des horaires d'ouverture, la continuité des soins est assurée par un vétérinaire d'astreinte joignable par téléphone, pour nos patients comme pour les animaux sans vétérinaire traitant. Il s'agit d'une astreinte téléphonique : aucun vétérinaire n'est présent en permanence sur place, il est donc indispensable d'appeler avant tout déplacement. En cas d'urgence, contactez en priorité votre vétérinaire traitant, qui vous orientera vers la solution de prise en charge la plus adaptée. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
                 includes: [
                     "Tri et évaluation vitale immédiate",
                     "Oxygénothérapie et réanimation cardio-pulmonaire",
                     "Perfusion et stabilisation",
                     "Sutures et traitement des plaies",
-                    "Hospitalisation intensive avec surveillance",
                     "Liaison avec centres de référence si spécialisation requise"
                 ],
                 duration: "Immédiat",
-                price: "Frais d'urgence : 85€ (incluant l'acte de base)",
-                availability: "24h/24 - 7j/7 - 365j/an, appeler avant arrivée"
+                price: "Consultation urgences en journée : 55€<br>Consultation urgences nuit / week-end / jour férié : à partir de 120€",
+                availability: "En dehors des horaires d'ouverture — astreinte téléphonique, appeler avant tout déplacement"
             }
         };
 
