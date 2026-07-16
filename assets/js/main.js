@@ -106,7 +106,7 @@
             adrien: {
                 name: "Dr. Adrien Le Leuch",
                 role: "Médecine interne & cardiologie",
-                image: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=400&h=400&fit=crop",
+                image: "assets/img/adrien-le-leuch-veterinaire.jpg",
                 tags: ["Médecine interne", "Cardiologie", "CEAV Médecine interne"],
                 bio: "Le Dr. Adrien Le Leuch est spécialiste en médecine interne et cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
                 diplomas: [
@@ -118,7 +118,7 @@
             maxime: {
                 name: "Dr. Maxime Bousses",
                 role: "Chirurgie, traumatologie ostéo-articulaire et orthopédie animale",
-                image: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=400&h=400&fit=crop",
+                image: "assets/img/maxime-bousses-veterinaire.jpg",
                 tags: ["Chirurgie", "Orthopédie", "Traumatologie"],
                 bio: "Le Dr. Maxime Bousses est notre spécialiste des interventions chirurgicales et des traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
                 diplomas: [
@@ -130,7 +130,7 @@
             lucie: {
                 name: "Dr. Lucie Lengellé",
                 role: "Comportement animal",
-                image: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=400&h=400&fit=crop",
+                image: "assets/img/lucie-lengelle-veterinaire.jpg",
                 tags: ["Comportement", "CEAV", "Animaux domestiques"],
                 bio: "Le Dr. Lucie Lengellé est spécialisée en comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
@@ -142,7 +142,7 @@
             alexis: {
                 name: "Dr. Alexis Racine",
                 role: "Ophtalmologie",
-                image: "https://images.unsplash.com/photo-1622253692010-333f2da6031d?w=400&h=400&fit=crop",
+                image: "assets/img/alexis-racine-veterinaire.jpg",
                 tags: ["Ophtalmologie", "Vision animale", "Chirurgie oculaire"],
                 bio: "Le Dr. Alexis Racine est spécialisé en ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
                 diplomas: [
@@ -159,6 +159,7 @@
             if (!data) return;
 
             document.getElementById('modalImg').src = data.image;
+            document.getElementById('modalImg').alt = `${data.name}, ${data.role} à la clinique vétérinaire Sancéa Vet`;
             document.getElementById('modalName').textContent = data.name;
             document.getElementById('modalRole').textContent = data.role;
             document.getElementById('modalBio').textContent = data.bio;

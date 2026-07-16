@@ -90,6 +90,12 @@ export async function onRequestPost(context) {
       };
       const careTypeLabel = careTypeLabels[formData.careType] || formData.careType || 'Non renseigné';
 
+      const followUpLabels = {
+        'veterinaire-traitant': 'Le vétérinaire traitant assure lui-même les suivis',
+        'sancea-vet': 'Les suivis sont réalisés par Sancéa Vet'
+      };
+      const followUpLabel = followUpLabels[formData.followUp] || formData.followUp || 'Non renseigné';
+
       htmlBody = `
 <h3>Référer un patient</h3>
 
@@ -104,7 +110,8 @@ Espèce: ${escapeHtml(formData.patientSpecies)}<br>
 
 <h4>Motif</h4>
 ${escapeHtml(formData.referralReason)}<br>
-<b>Type de prise en charge souhaité:</b> ${escapeHtml(careTypeLabel)}
+<b>Type de prise en charge souhaité:</b> ${escapeHtml(careTypeLabel)}<br>
+<b>Suivi (hors suivi spécialisé):</b> ${escapeHtml(followUpLabel)}
 
 <h4>Historique</h4>
 ${escapeHtml(formData.clinicalHistory).replace(/\n/g, '<br>')}

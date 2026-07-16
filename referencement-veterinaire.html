@@ -192,7 +192,7 @@
                 </div>
 
                 <div class="form-intro">
-                    <p>Ce formulaire est réservé aux vétérinaires. Il permet d'adresser une demande de référence d'un patient afin de faciliter la prise des prochains rendez-vous du propriétaire et de préparer au mieux sa prochaine visite.</p>
+                    <p>Ce formulaire est réservé aux vétérinaires. Il permet d'adresser une demande de référé d'un patient afin de faciliter la prise des prochains rendez-vous du propriétaire et de préparer au mieux sa prochaine visite.</p>
                     <p>Conformément au Règlement général sur la protection des données (RGPD), nous vous informons que les données renseignées dans ce formulaire seront enregistrées dans notre fichier client.</p>
                 </div>
 
@@ -287,18 +287,18 @@
                         </div>
                     </div>
 
-                    <h3 style="font-family:'Playfair Display',serif; font-size:1.25rem; margin:2rem 0 1rem; color:var(--primary-dark);">Motif de référence</h3>
+                    <h3 style="font-family:'Playfair Display',serif; font-size:1.25rem; margin:2rem 0 1rem; color:var(--primary-dark);">Motif de référé</h3>
                     <div class="form-grid">
                         <div class="form-group full-width">
                             <label for="referralReason">Motif principal <span class="required">*</span></label>
                             <select id="referralReason" name="referralReason" required>
                                 <option value="">Sélectionnez le motif</option>
                                 <option value="chirurgie">Chirurgie spécialisée</option>
-                                <option value="imagerie">Imagerie médicale avancée</option>
-                                <option value="cardiologie">Cardiologie</option>
+                                <option value="echographie-abdominale">Échographie abdominale</option>
+                                <option value="echographie-cardiaque">Échographie cardiaque</option>
+                                <option value="consultation-cardiologie">Consultation de cardiologie</option>
                                 <option value="dermatologie">Dermatologie</option>
                                 <option value="ophtalmologie">Ophtalmologie</option>
-                                <option value="neurologie">Neurologie</option>
                                 <option value="oncologie">Oncologie</option>
                                 <option value="orthopedie">Orthopédie</option>
                                 <option value="urgences">Urgences</option>
@@ -307,7 +307,7 @@
                             </select>
                         </div>
                         <div class="form-group full-width">
-                            <label for="clinicalHistory">Historique clinique & motif de référence <span class="required">*</span></label>
+                            <label for="clinicalHistory">Historique clinique & motif de référé <span class="required">*</span></label>
                             <textarea id="clinicalHistory" name="clinicalHistory" placeholder="Décrivez l'historique médical de l'animal, les symptômes observés, les traitements déjà essayés, les résultats d'examens précédents..." required></textarea>
                         </div>
                         <div class="form-group full-width">
@@ -328,6 +328,19 @@
                                 <label class="choice-option">
                                     <input type="radio" name="careType" value="examen-complementaire-isole" required>
                                     <span>Examen complémentaire isolé</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="form-group full-width">
+                            <label>Suivi du patient, hors suivi spécialisé <span class="required">*</span></label>
+                            <div class="choice-options">
+                                <label class="choice-option">
+                                    <input type="radio" name="followUp" value="veterinaire-traitant" required>
+                                    <span>Le vétérinaire traitant assure lui-même les suivis</span>
+                                </label>
+                                <label class="choice-option">
+                                    <input type="radio" name="followUp" value="sancea-vet" required>
+                                    <span>Les suivis sont réalisés par Sancéa Vet</span>
                                 </label>
                             </div>
                         </div>
@@ -354,7 +367,7 @@
                         <div id="turnstileWidget" style="margin-bottom:1rem;"></div>
                         <button type="submit" class="btn-submit" id="submitBtn">
                             <span class="spinner" id="btnSpinner"></span>
-                            <span id="btnText">📨 Envoyer le dossier de référence</span>
+                            <span id="btnText">📨 Envoyer le dossier de référé</span>
                         </button>
                     </div>
                 </form>
@@ -528,6 +541,7 @@
                 treatments: form.treatments.value,
                 additionalInfo: form.additionalInfo.value,
                 careType: form.careType.value,
+                followUp: form.followUp.value,
                 consent: form.consent.checked,
                 attachments: attachments,
                 turnstileToken: form.turnstileToken ? form.turnstileToken.value : ''
@@ -560,7 +574,7 @@
         } finally {
             submitBtn.disabled = false;
             btnSpinner.style.display = 'none';
-            btnText.textContent = '📨 Envoyer le dossier de référence';
+            btnText.textContent = '📨 Envoyer le dossier de référé';
         }
     });
 })();
