@@ -108,7 +108,7 @@
                 role: "Médecine interne & cardiologie",
                 image: "assets/img/adrien-le-leuch-veterinaire.jpg",
                 tags: ["Médecine interne", "Cardiologie", "CEAV Médecine interne"],
-                bio: "Le Dr. Adrien Le Leuch est spécialiste en médecine interne et cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
+                bio: "Le Dr. Adrien Le Leuch a pour domaines de compétence la médecine interne et la cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
                 diplomas: [
                     { year: "2021", name: "CEAV Médecine interne", school: "Collège Européen d'Anesthésie Vétérinaire" },
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
@@ -117,10 +117,10 @@
             },
             maxime: {
                 name: "Dr. Maxime Bousses",
-                role: "Chirurgie, traumatologie ostéo-articulaire et orthopédie animale",
+                role: "Médecine et chirurgie orthopédiques",
                 image: "assets/img/maxime-bousses-veterinaire.jpg",
                 tags: ["Chirurgie", "Orthopédie", "Traumatologie"],
-                bio: "Le Dr. Maxime Bousses est notre spécialiste des interventions chirurgicales et des traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
+                bio: "Le Dr. Maxime Bousses a pour domaines de compétence les interventions chirurgicales et les traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
                 diplomas: [
                     { year: "2022", name: "CES Traumatologie ostéo-articulaire et orthopédie animale", school: "Collège Européen Vétérinaire" },
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
@@ -129,10 +129,10 @@
             },
             lucie: {
                 name: "Dr. Lucie Lengellé",
-                role: "Comportement animal",
+                role: "Médecine du comportement",
                 image: "assets/img/lucie-lengelle-veterinaire.jpg",
                 tags: ["Comportement", "CEAV", "Animaux domestiques"],
-                bio: "Le Dr. Lucie Lengellé est spécialisée en comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
+                bio: "Le Dr. Lucie Lengellé a un attrait particulier pour le comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
                     { year: "2023", name: "CEAV Médecine du comportement des animaux domestiques", school: "Collège Européen d'Anesthésie Vétérinaire" },
                     { year: "2016", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
@@ -141,10 +141,10 @@
             },
             alexis: {
                 name: "Dr. Alexis Racine",
-                role: "Ophtalmologie",
+                role: "Médecine ophtalmologique",
                 image: "assets/img/alexis-racine-veterinaire.jpg",
                 tags: ["Ophtalmologie", "Vision animale", "Chirurgie oculaire"],
-                bio: "Le Dr. Alexis Racine est spécialisé en ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
+                bio: "Le Dr. Alexis Racine a pour domaine spécifique d'intérêt l'ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
                 diplomas: [
                     { year: "2024", name: "DE d'Ophtalmologie", school: "Collège Européen Vétérinaire" },
                     { year: "2017", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
