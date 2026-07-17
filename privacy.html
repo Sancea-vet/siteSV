@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Règles de confidentialité — Extension Sancéa Vet</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65; color: #1e2430; background: #f7f6f2;
+    margin: 0; padding: 2.5rem 1.25rem;
+  }
+  main { max-width: 780px; margin: 0 auto; background: #fff; border: 1px solid #e2ddd0;
+    border-radius: 14px; padding: 2.5rem 2.25rem; box-shadow: 0 8px 30px rgba(40,50,70,.06); }
+  h1 { font-size: 1.7rem; margin: 0 0 .25rem; color: #2b3f5c; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .5rem; color: #2b3f5c; border-bottom: 1px solid #ece7db; padding-bottom: .35rem; }
+  .sub { color: #6b7280; font-size: .92rem; margin: 0 0 1.5rem; }
+  ul { padding-left: 1.25rem; }
+  li { margin: .3rem 0; }
+  a { color: #256d7b; }
+  code { background: #f0ede4; padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  .foot { margin-top: 2.5rem; padding-top: 1rem; border-top: 1px solid #ece7db; color: #6b7280; font-size: .85rem; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #14171c; color: #d8dde5; }
+    main { background: #1c2128; border-color: #2c333d; box-shadow: none; }
+    h1, h2 { color: #8fb7c9; }
+    h2 { border-color: #2c333d; }
+    code { background: #262c34; }
+    a { color: #6fb4c4; }
+    .sub, .foot { color: #9aa4b2; }
+    .foot { border-color: #2c333d; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Règles de confidentialité</h1>
+  <p class="sub">Extension navigateur « Sancéa Vet — Comptes Rendus &amp; Imagerie » · Dernière mise à jour : 17 juillet 2026</p>
+
+  <p>
+    La présente politique décrit les données traitées par l'extension navigateur
+    <strong>Sancéa Vet — Comptes Rendus &amp; Imagerie</strong> (ci-après « l'extension »), éditée par la
+    clinique vétérinaire Sancéa Vet. L'extension est un outil professionnel interne destiné aux
+    vétérinaires de la clinique pour la rédaction de comptes rendus et la préparation d'examens d'imagerie.
+  </p>
+
+  <h2>1. Responsable du traitement</h2>
+  <ul>
+    <li><strong>Sancéa Vet</strong> — Clinique Vétérinaire</li>
+    <li>75 boulevard de Dijon, 10800 Saint-Julien-les-Villas, France</li>
+    <li>Courriel : <a href="mailto:contact@sanceavet.fr">contact@sanceavet.fr</a> — Téléphone : 03 10 94 09 66</li>
+  </ul>
+
+  <h2>2. Données traitées</h2>
+  <p>Dans le cadre d'un acte vétérinaire, l'extension peut traiter :</p>
+  <ul>
+    <li><strong>Données de l'animal</strong> : nom, espèce, race, sexe, date de naissance, âge, poids, robe, numéro d'identification (puce), numéro de dossier.</li>
+    <li><strong>Données du propriétaire</strong> : nom / raison sociale, adresse postale, téléphone, adresse e-mail.</li>
+    <li><strong>Données professionnelles</strong> : nom du vétérinaire traitant, contenu clinique des comptes rendus rédigés.</li>
+  </ul>
+  <p>
+    L'extension ne collecte <strong>aucune</strong> donnée de navigation, de localisation, de santé humaine,
+    ni d'identifiant publicitaire. Elle n'intègre aucun outil d'analyse d'audience ni de publicité.
+  </p>
+
+  <h2>3. Origine des données</h2>
+  <p>
+    Les données sont soit saisies manuellement par le vétérinaire, soit lues automatiquement depuis la fiche
+    ouverte dans le logiciel métier <strong>Dr Veto Cloud</strong> (<code>drveto.cloud</code>) afin de pré-remplir
+    les formulaires (fonction « autofill »). La lecture ne s'effectue que sur les pages de ce logiciel et
+    uniquement pour la fiche consultée par l'utilisateur.
+  </p>
+
+  <h2>4. Finalités</h2>
+  <ul>
+    <li>Pré-remplissage des comptes rendus, certificats et formulaires vétérinaires.</li>
+    <li>Génération de documents PDF et leur archivage dans l'espace de stockage privé de la clinique.</li>
+    <li>Préparation d'une « worklist » d'imagerie (planification d'examen) à destination du système d'imagerie de la clinique.</li>
+  </ul>
+
+  <h2>5. Stockage local</h2>
+  <p>
+    Les données saisies ou détectées sont conservées <strong>localement sur l'appareil</strong> de l'utilisateur
+    (mécanismes <code>chrome.storage.local</code>, <code>localStorage</code> et <code>IndexedDB</code> du navigateur),
+    afin d'assurer la persistance des comptes rendus en cours et le report du contexte patient entre les outils.
+    Ces données peuvent être effacées à tout moment par l'utilisateur (bouton « Vider » / « Réinitialiser »
+    de l'extension, ou effacement des données du navigateur).
+  </p>
+
+  <h2>6. Transmission &amp; destinataires</h2>
+  <p>
+    Les données transmises hors de l'appareil le sont exclusivement vers l'infrastructure de la clinique
+    Sancéa Vet, et <strong>uniquement via des connexions chiffrées (HTTPS)</strong> :
+  </p>
+  <ul>
+    <li><strong>Planification d'imagerie</strong> : les informations nécessaires à la worklist sont envoyées au
+      service d'automatisation privé de la clinique (<code>https://n8n.sanceavet.fr</code>), qui les relaie en interne
+      vers le système d'imagerie.</li>
+    <li><strong>Archivage des comptes rendus</strong> : les PDF générés sont transmis au même service
+      (<code>https://n8n.sanceavet.fr</code>) pour classement dans l'espace de stockage privé de la clinique
+      (Google Drive de l'établissement).</li>
+  </ul>
+  <p>
+    Aucune donnée n'est vendue, louée, ni transmise à des tiers à des fins commerciales ou publicitaires.
+    Aucune donnée n'est partagée avec l'éditeur du navigateur ou avec des annonceurs.
+  </p>
+
+  <h2>7. Base légale &amp; conservation</h2>
+  <p>
+    Le traitement repose sur l'intérêt légitime de la clinique à documenter les actes vétérinaires et sur
+    l'exécution de la prestation de soins. Les données cliniques sont conservées conformément aux obligations
+    déontologiques et légales applicables à l'exercice vétérinaire. Les données mises en cache localement par
+    l'extension sont éphémères et peuvent être supprimées à tout moment par l'utilisateur.
+  </p>
+
+  <h2>8. Sécurité</h2>
+  <p>
+    Toute transmission de données vers l'infrastructure de la clinique s'effectue via HTTPS (chiffrement TLS).
+    L'accès à l'extension est réservé aux postes professionnels de la clinique.
+  </p>
+
+  <h2>9. Vos droits</h2>
+  <p>
+    Conformément au Règlement général sur la protection des données (RGPD), les personnes concernées disposent
+    de droits d'accès, de rectification, d'effacement, de limitation et d'opposition. Ces droits s'exercent
+    auprès de la clinique à l'adresse <a href="mailto:contact@sanceavet.fr">contact@sanceavet.fr</a>.
+  </p>
+
+  <h2>10. Modifications</h2>
+  <p>
+    La présente politique peut être mise à jour. La date de dernière mise à jour figure en haut de ce document.
+  </p>
+
+  <p class="foot">
+    Sancéa Vet — Clinique Vétérinaire · 75 boulevard de Dijon, 10800 Saint-Julien-les-Villas ·
+    <a href="mailto:contact@sanceavet.fr">contact@sanceavet.fr</a>
+  </p>
+</main>
+</body>
+</html>
