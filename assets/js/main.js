@@ -72,7 +72,7 @@
                 title: "Imagerie Médicale",
                 icon: "🩺",
                 subtitle: "Diagnostic par l'image de haute précision",
-                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, dents, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
+                description: "La clinique vétérinaire Sancéa Vet dispose d'un plateau technique d'imagerie avancé, fiable et performant. Nous possédons une radiographie numérique permettant la réalisation de tous types de clichés radiographiques : thorax, abdomen, segments osseux, rachis, crâne, ... Nous disposons également d'un échographe récent et performant permettant la réalisation des échographies cardiaques, thoraciques et abdominales. Nous proposons également la réalisation de cytoponctions et de biopsies échoguidées. Ces équipements permettent un diagnostic rapide et précis des affections thoraciques, abdominales, orthopédiques et cardiaques, directement sur place sans déplacement stressant.",
                 includes: [
                     "Radiographie numérique DR (thorax, abdomen, os)",
                     "Échographie abdominale et cardiaque (Doppler)",
@@ -95,7 +95,7 @@
                     "Sutures et traitement des plaies",
                     "Liaison avec centres de référence si spécialisation requise"
                 ],
-                duration: "Immédiat",
+                duration: "adaptée à la situation d'urgence",
                 price: "Consultation urgences en journée : 55€<br>Consultation urgences nuit / week-end / jour férié : à partir de 120€",
                 availability: "En dehors des horaires d'ouverture — astreinte téléphonique, appeler avant tout déplacement"
             }
@@ -107,10 +107,10 @@
                 name: "Dr. Adrien Le Leuch",
                 role: "Médecine interne & cardiologie",
                 image: "assets/img/adrien-le-leuch-veterinaire.jpg",
-                tags: ["Médecine interne", "Cardiologie", "CEAV Médecine interne"],
+                tags: ["Médecine Générale", "Médecine interne", "Cardiologie", "CEAV Médecine interne"],
                 bio: "Le Dr. Adrien Le Leuch a pour domaines de compétence la médecine interne et la cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
                 diplomas: [
-                    { year: "2021", name: "CEAV Médecine interne", school: "Collège Européen d'Anesthésie Vétérinaire" },
+                    { year: "2023", name: "CEAV de médecine interne des animaux de compagnie" },
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
                 ],
                 specialties: "Cardiologie vétérinaire, médecine interne, maladies métaboliques, suivi de l'insuffisance cardiaque, diagnostics complexes et gestion des pathologies chroniques."
@@ -119,10 +119,10 @@
                 name: "Dr. Maxime Bousses",
                 role: "Médecine et chirurgie orthopédiques",
                 image: "assets/img/maxime-bousses-veterinaire.jpg",
-                tags: ["Chirurgie", "Orthopédie", "Traumatologie"],
+                tags: ["Médecine Générale", "Chirurgie", "Orthopédie", "Traumatologie"],
                 bio: "Le Dr. Maxime Bousses a pour domaines de compétence les interventions chirurgicales et les traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
                 diplomas: [
-                    { year: "2022", name: "CES Traumatologie ostéo-articulaire et orthopédie animale", school: "Collège Européen Vétérinaire" },
+                    { year: "2018", name: "CES Traumatologie ostéo-articulaire et orthopédie animale" },
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVT" }
                 ],
                 specialties: "Chirurgie orthopédique, prise en charge des fractures, traumatologie ostéo-articulaire, prothèses et fixateurs externes, réhabilitation post-opératoire."
@@ -131,11 +131,11 @@
                 name: "Dr. Lucie Lengellé",
                 role: "Médecine du comportement",
                 image: "assets/img/lucie-lengelle-veterinaire.jpg",
-                tags: ["Comportement", "CEAV", "Animaux domestiques"],
+                tags: ["Médecine Générale", "CEAV de Médecine du comportement des animaux domestiques"],
                 bio: "Le Dr. Lucie Lengellé a un attrait particulier pour le comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
-                    { year: "2023", name: "CEAV Médecine du comportement des animaux domestiques", school: "Collège Européen d'Anesthésie Vétérinaire" },
-                    { year: "2016", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
+                    { year: "2015", name: "CEAV Médecine du comportement des animaux domestiques"},
+                    { year: "2011", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
                 specialties: "Évaluation du comportement, prise en charge des troubles du comportement, rééducation comportementale, socialisation et adaptation des animaux domestiques, approche positive et scientifique."
             },
@@ -143,11 +143,11 @@
                 name: "Dr. Alexis Racine",
                 role: "Médecine ophtalmologique",
                 image: "assets/img/alexis-racine-veterinaire.jpg",
-                tags: ["Ophtalmologie", "Vision animale", "Chirurgie oculaire"],
+                tags: ["Médecine Générale", "Ophtalmologie", "Chirurgie oculaire"],
                 bio: "Le Dr. Alexis Racine a pour domaine spécifique d'intérêt l'ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
                 diplomas: [
-                    { year: "2024", name: "DE d'Ophtalmologie", school: "Collège Européen Vétérinaire" },
-                    { year: "2017", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
+                    { year: "2017", name: "DE d'Ophtalmologie" },
+                    { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
                 specialties: "Examens oculaires approfondis, chirurgie ophtalmologique, prise en charge des infections et inflammations oculaires, gestion des glaucomes et des troubles de la vision, consultations de suivi post-opératoire."
             }
