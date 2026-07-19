@@ -30,7 +30,7 @@
                     "Rappels personnalisés par email/SMS"
                 ],
                 duration: "15 à 20 minutes",
-                price: "À partir de 55€ (vaccin + consultation)",
+                price: "À partir de 59€ (vaccin + consultation)",
                 availability: "Lundi au Samedi, sur rendez-vous"
             },
             chirurgie: {
@@ -129,15 +129,15 @@
             },
             lucie: {
                 name: "Dr. Lucie Lengellé",
-                role: "Médecine du comportement",
+                role: "Médecine, échographie et comportement",
                 image: "assets/img/lucie-lengelle-veterinaire.jpg",
                 tags: ["Médecine Générale", "CEAV de Médecine du comportement des animaux domestiques"],
-                bio: "Le Dr. Lucie Lengellé a un attrait particulier pour le comportement animal. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
+                bio: "Le Dr Lucie Lengellé a un attrait particulier pour la médecine, la prise en charge des animaux hospitalisés et l'échographie abdominale. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
                     { year: "2015", name: "CEAV Médecine du comportement des animaux domestiques"},
                     { year: "2011", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
-                specialties: "Évaluation du comportement, prise en charge des troubles du comportement, rééducation comportementale, socialisation et adaptation des animaux domestiques, approche positive et scientifique."
+                specialties: "Médecine, échographie abdominale, diagnose de race, évaluation comportementale."
             },
             alexis: {
                 name: "Dr. Alexis Racine",
