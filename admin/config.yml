@@ -2,7 +2,10 @@ backend:
   name: github
   repo: "Sancea-vet/siteSV"
   branch: main
-  base_url: https://sanceavet.fr
+  # Origine des endpoints OAuth /auth et /callback.
+  # À repasser sur https://sanceavet.fr quand le domaine sera réactivé
+  # (et à réaligner avec l'URL de callback de l'app OAuth GitHub).
+  base_url: https://sv-33m.pages.dev
   auth_scope: repo          # aligné avec auth.js
   editorial_workflow: true
   editor:
