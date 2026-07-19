@@ -45,7 +45,10 @@
             { "@type": "OpeningHoursSpecification", "dayOfWeek": "Saturday", "opens": "09:00", "closes": "16:00" }
           ],
           "priceRange": "€€",
-          "sameAs": []
+          "sameAs": [
+            "https://www.instagram.com/sanceavet",
+            "https://www.facebook.com/profile.php?id=61591715904752"
+          ]
         },
         {
           "@type": "WebPage",
@@ -57,10 +60,10 @@
       ]
     }
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260719">
+    <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260719c">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
@@ -168,7 +171,7 @@
         <div class="container">
             <div class="about-grid">
                 <div class="about-image fade-in">
-                    <img src="https://images.unsplash.com/photo-1576201836106-db1758fd1c97?w=600&h=400&fit=crop" alt="Notre clinique">
+                    <img src="assets/img/clinique-accueil.jpg" alt="Notre clinique" width="600" height="400" loading="lazy">
                     <div class="experience-badge">
                         <span class="number">10+</span>
                         <span>Années d'expérience</span>
@@ -302,6 +305,24 @@
                 <a href="blog.html" class="btn btn-secondary">Voir tous les articles</a>
             </div>
             <div class="blog-grid" id="blogGrid"></div>
+
+            <div class="social-follow fade-in">
+                <p>Suivez le quotidien de la clinique sur nos réseaux sociaux</p>
+                <div class="social-links">
+                    <a href="https://www.instagram.com/sanceavet" class="social-link social-instagram" target="_blank" rel="noopener noreferrer" aria-label="Suivre Sancéa Vet sur Instagram">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M12 2.16c3.2 0 3.58.01 4.85.07 1.17.05 1.8.25 2.23.41.56.22.96.48 1.38.9.42.42.68.82.9 1.38.16.42.36 1.06.41 2.23.06 1.27.07 1.65.07 4.85s-.01 3.58-.07 4.85c-.05 1.17-.25 1.8-.41 2.23-.22.56-.48.96-.9 1.38-.42.42-.82.68-1.38.9-.42.16-1.06.36-2.23.41-1.27.06-1.65.07-4.85.07s-3.58-.01-4.85-.07c-1.17-.05-1.8-.25-2.23-.41-.56-.22-.96-.48-1.38-.9-.42-.42-.68-.82-.9-1.38-.16-.42-.36-1.06-.41-2.23-.06-1.27-.07-1.65-.07-4.85s.01-3.58.07-4.85c.05-1.17.25-1.8.41-2.23.22-.56.48-.96.9-1.38.42-.42.82-.68 1.38-.9.42-.16 1.06-.36 2.23-.41 1.27-.06 1.65-.07 4.85-.07M12 0C8.74 0 8.33.01 7.05.07 5.78.13 4.9.33 4.14.63c-.79.3-1.46.71-2.13 1.38C1.34 2.68.93 3.35.63 4.14.33 4.9.13 5.78.07 7.05.01 8.33 0 8.74 0 12s.01 3.67.07 4.95c.06 1.27.26 2.15.56 2.91.3.79.71 1.46 1.38 2.13.67.67 1.34 1.08 2.13 1.38.76.3 1.64.5 2.91.56C8.33 23.99 8.74 24 12 24s3.67-.01 4.95-.07c1.27-.06 2.15-.26 2.91-.56.79-.3 1.46-.71 2.13-1.38.67-.67 1.08-1.34 1.38-2.13.3-.76.5-1.64.56-2.91.06-1.28.07-1.69.07-4.95s-.01-3.67-.07-4.95c-.06-1.27-.26-2.15-.56-2.91-.3-.79-.71-1.46-1.38-2.13C21.32 1.34 20.65.93 19.86.63 19.1.33 18.22.13 16.95.07 15.67.01 15.26 0 12 0Zm0 5.84a6.16 6.16 0 1 0 0 12.32 6.16 6.16 0 0 0 0-12.32Zm0 10.16a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm7.85-10.4a1.44 1.44 0 1 1-2.88 0 1.44 1.44 0 0 1 2.88 0Z"/>
+                        </svg>
+                        <span>Instagram</span>
+                    </a>
+                    <a href="https://www.facebook.com/profile.php?id=61591715904752" class="social-link social-facebook" target="_blank" rel="noopener noreferrer" aria-label="Suivre Sancéa Vet sur Facebook">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.09 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.69 4.53-4.69 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.25h3.33l-.53 3.49h-2.8V24C19.61 23.09 24 18.1 24 12.07Z"/>
+                        </svg>
+                        <span>Facebook</span>
+                    </a>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -380,9 +401,22 @@
                 </div>
             </div>
 
-            <!-- Google Map -->
+            <!-- Google Map : chargée uniquement au clic (voir main.js) -->
             <div class="contact-map fade-in">
-                <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2719.5890869841707!2d4.0765!3d48.2972!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e727b8b8b8b8b9%3A0x5d5c5c5c5c5c5c5c!2s75%20Boulevard%20de%20Dijon%2C%2010800%20Saint-Julien-les-Villas!5e0!3m2!1sfr!2sfr!4v1234567890" width="100%" height="400" style="border:0; border-radius: 20px;" allowfullscreen="" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+                <div class="embed-consent"
+                     data-embed-src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2719.5890869841707!2d4.0765!3d48.2972!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x47e727b8b8b8b8b9%3A0x5d5c5c5c5c5c5c5c!2s75%20Boulevard%20de%20Dijon%2C%2010800%20Saint-Julien-les-Villas!5e0!3m2!1sfr!2sfr!4v1234567890"
+                     data-embed-title="Plan d'accès à la clinique Sancéa Vet">
+                    <svg class="embed-consent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M12 21s-7-6.2-7-11a7 7 0 1 1 14 0c0 4.8-7 11-7 11z"/>
+                        <circle cx="12" cy="10" r="2.5"/>
+                    </svg>
+                    <p class="embed-consent-address">75 Boulevard de Dijon<br>10800 Saint-Julien-les-Villas</p>
+                    <button type="button" class="embed-consent-btn">Afficher la carte</button>
+                    <p class="embed-consent-note">
+                        L'affichage de la carte charge un contenu Google Maps et transmet votre adresse IP à Google.
+                        <a href="https://www.google.com/maps/place/75+Boulevard+de+Dijon,+10800+Saint-Julien-les-Villas" target="_blank" rel="noopener">Ouvrir l'itinéraire dans un nouvel onglet</a>
+                    </p>
+                </div>
             </div>
         </div>
     </section>
@@ -429,10 +463,10 @@
         </div>
     </footer>
 
-    <script src="assets/js/forms-status.js?v=20260719"></script>
-    <script src="assets/js/contact.js?v=20260719"></script>
-    <script src="assets/js/main.js?v=20260719"></script>    
-    <script src="assets/js/blog.js?v=20260719"></script>
+    <script src="assets/js/forms-status.js?v=20260719b"></script>
+    <script src="assets/js/contact.js?v=20260719b"></script>
+    <script src="assets/js/main.js?v=20260719c"></script>    
+    <script src="assets/js/blog.js?v=20260719b"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">
     <div class="modal-content modal-large">

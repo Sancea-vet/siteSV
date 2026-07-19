@@ -289,3 +289,22 @@
         document.querySelectorAll('.fade-in').forEach(el => {
             observer.observe(el);
         });
+
+        // Chargement au clic des contenus tiers (RGPD)
+        // Aucun appel au service externe tant que le visiteur n'a pas cliqué :
+        // le clic vaut consentement pour ce service, ce qui évite un bandeau global.
+        // Usage : <div class="embed-consent" data-embed-src="..." data-embed-title="...">
+        document.querySelectorAll('.embed-consent').forEach(placeholder => {
+            const button = placeholder.querySelector('.embed-consent-btn');
+            if (!button) return;
+
+            button.addEventListener('click', () => {
+                const iframe = document.createElement('iframe');
+                iframe.src = placeholder.dataset.embedSrc;
+                iframe.title = placeholder.dataset.embedTitle || 'Contenu externe';
+                iframe.loading = 'lazy';
+                iframe.referrerPolicy = 'no-referrer-when-downgrade';
+                iframe.allowFullscreen = true;
+                placeholder.replaceWith(iframe);
+            });
+        });

@@ -894,6 +894,61 @@
             border: none;
         }
 
+        /* Placeholder de chargement au clic (RGPD) */
+        .embed-consent {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+            height: 400px;
+            padding: 2rem;
+            text-align: center;
+            background: var(--bg-alt);
+            border: 1px dashed var(--primary-light);
+            border-radius: 20px;
+        }
+
+        .embed-consent-icon {
+            width: 44px;
+            height: 44px;
+            color: var(--primary);
+        }
+
+        .embed-consent-address {
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        .embed-consent-btn {
+            padding: 0.75rem 1.75rem;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #fff;
+            background: var(--primary);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: background 0.3s, transform 0.3s;
+        }
+
+        .embed-consent-btn:hover {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .embed-consent-note {
+            max-width: 34rem;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            color: var(--text-light);
+        }
+
+        .embed-consent-note a {
+            color: var(--primary);
+        }
+
         /* Footer */
         footer {
             background: var(--text);
@@ -1019,7 +1074,8 @@
                 order: -1;
             }
 
-            .contact-map iframe {
+            .contact-map iframe,
+            .embed-consent {
                 height: 300px;
             }
 
@@ -1209,4 +1265,61 @@
     float: right;
     margin: 1rem 1rem 0 0;
     z-index: 10;
+}
+
+/* Réseaux sociaux — section Actualités */
+.social-follow {
+    margin-top: 3rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid #e5e7eb;
+    text-align: center;
+}
+
+.social-follow p {
+    color: var(--text-light);
+    margin-bottom: 1.25rem;
+}
+
+.social-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1rem;
+}
+
+.social-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: 50px;
+    border: 1px solid #e5e7eb;
+    background: var(--bg);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.3s, box-shadow 0.3s, color 0.3s, border-color 0.3s;
+}
+
+.social-link svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+    flex-shrink: 0;
+}
+
+.social-link:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    color: var(--bg);
+}
+
+.social-link.social-instagram:hover {
+    border-color: transparent;
+    background: linear-gradient(45deg, #f09433, #dc2743, #bc1888);
+}
+
+.social-link.social-facebook:hover {
+    border-color: transparent;
+    background: #1877f2;
 }

@@ -15,9 +15,9 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="Politique de confidentialité | Sancéa Vet">
     <meta name="twitter:description" content="Sancéa Vet explique comment les données personnelles sont collectées et protégées sur le site.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260719">
+    <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260719c">
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
         #navbar.scrolled { background-color: #ffffff !important; }
@@ -62,7 +62,17 @@
 
                 <section style="margin-bottom:2rem;">
                     <h3>Cookies</h3>
-                    <p>Le site utilise des cookies techniques nécessaires à son fonctionnement. Les cookies de suivi ne sont pas activés sans votre consentement explicite. Vous pouvez gérer ou supprimer les cookies depuis les paramètres de votre navigateur.</p>
+                    <p>Ce site n'utilise <strong>aucun cookie publicitaire, ni aucun outil de mesure d'audience ou de suivi comportemental</strong> (Google Analytics, pixels de réseaux sociaux, régies publicitaires). Aucun bandeau de consentement n'est donc nécessaire.</p>
+                    <p>Seuls sont déposés des cookies strictement nécessaires au fonctionnement et à la sécurité du site, exemptés de consentement au titre de l'article 82 de la loi Informatique et Libertés : un cookie de protection contre la falsification de requête (anti-CSRF) lors de la connexion à l'espace d'administration, d'une durée de 10 minutes.</p>
+                    <p>Vous pouvez à tout moment gérer ou supprimer les cookies depuis les paramètres de votre navigateur.</p>
+                </section>
+
+                <section style="margin-bottom:2rem;">
+                    <h3>Services tiers et contenus externes</h3>
+                    <p>Les polices de caractères du site sont hébergées sur nos propres serveurs : leur affichage n'entraîne aucune connexion à un service tiers.</p>
+                    <p><strong>Google Maps.</strong> Le plan d'accès à la clinique n'est <em>pas</em> chargé automatiquement. Il s'affiche uniquement si vous cliquez sur le bouton « Afficher la carte » : ce clic vaut consentement au chargement de ce contenu. À ce moment seulement, votre adresse IP et des informations sur votre navigateur sont transmises à Google LLC, susceptible de déposer ses propres cookies. Tant que vous ne cliquez pas, aucune donnée n'est transmise à Google. Voir la <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">politique de confidentialité de Google</a>.</p>
+                    <p><strong>Cloudflare Turnstile.</strong> Nos formulaires sont protégés contre les envois automatisés par le service Turnstile de Cloudflare, Inc. Ce dispositif analyse des signaux techniques du navigateur afin de distinguer un visiteur humain d'un robot. Il relève des mesures de sécurité nécessaires à la fourniture du service et ne procède à aucun suivi publicitaire. Voir la <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener">politique de confidentialité de Cloudflare</a>.</p>
+                    <p><strong>Hébergement.</strong> Le site est hébergé par Cloudflare Pages. À ce titre, Cloudflare traite les données techniques de connexion (adresse IP, journaux de sécurité) nécessaires à la mise à disposition et à la protection du site.</p>
                 </section>
 
                 <section style="margin-bottom:2rem;">
@@ -73,6 +83,7 @@
                 <section style="margin-bottom:2rem;">
                     <h3>Vos droits</h3>
                     <p>Conformément au RGPD, vous disposez d'un droit d'accès, de rectification, de suppression, d'opposition, et de portabilité de vos données. Pour exercer ces droits, contactez-nous à <a href="mailto:contact@sanceavet.fr">contact@sanceavet.fr</a>.</p>
+                    <p>Si vous estimez, après nous avoir contactés, que vos droits ne sont pas respectés, vous pouvez adresser une réclamation à la CNIL : <a href="https://www.cnil.fr/fr/plaintes" target="_blank" rel="noopener">www.cnil.fr/fr/plaintes</a>.</p>
                 </section>
 
                 <section style="margin-bottom:2rem;">
@@ -121,6 +132,6 @@
         </div>
     </footer>
 
-    <script src="assets/js/main.js?v=20260719"></script>
+    <script src="assets/js/main.js?v=20260719c"></script>
 </body>
 </html>
