@@ -176,7 +176,7 @@
                     <span class="year">${dip.year}</span>
                     <div>
                         <div class="dip-name">${dip.name}</div>
-                        <div class="dip-school">${dip.school}</div>
+                        ${dip.school ? `<div class="dip-school">${dip.school}</div>` : ''}
                     </div>
                 </li>
             `).join('');
