@@ -156,6 +156,17 @@ function renderBlogGrid(posts) {
     const sortedPosts = posts.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
     const hasModal = !!document.getElementById('articleModal');
 
+    // Aucun article publié : on affiche un message plutôt qu'une section vide
+    if (sortedPosts.length === 0) {
+        blogGrid.innerHTML = `
+            <p style="grid-column:1/-1; text-align:center; color:var(--text-light); padding:2rem 0;">
+                Aucun article pour le moment. Revenez bientôt !
+            </p>`;
+        const existing = document.getElementById('voirTousBtn');
+        if (existing) existing.remove();
+        return;
+    }
+
     // Sur homepage (avec modal) : 3 articles + bouton "voir tous"
     // Sur blog.html : tous les articles
     const postsToShow = hasModal ? sortedPosts.slice(0, 3) : sortedPosts;
