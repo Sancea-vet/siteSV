@@ -117,7 +117,16 @@
         .hp-field { display: none !important; visibility: hidden; opacity: 0; position: absolute; left: -9999px; }
         @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } .choice-options { grid-template-columns: 1fr; } .form-wrapper { padding: 1.5rem; } .hero-container { padding: 7rem 1.5rem 2rem; } }
     </style>
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script>
+        // Défini avant le chargement de l'API : Cloudflare appelle ce callback dès qu'elle est prête.
+        // Si le script du formulaire n'est pas encore exécuté, le drapeau permet un rendu différé.
+        window.turnstileReady = false;
+        window.onloadTurnstileCallback = function () {
+            window.turnstileReady = true;
+            if (typeof window.renderTurnstile === 'function') window.renderTurnstile();
+        };
+    </script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback" async defer></script>
     <meta name="description" content="Sancéa Vet - Clinique vétérinaire à Saint-Julien-les-Villas près de Troyes (10). Dr Adrien Le Leuch, Dr Lucie Lengellé, Dr Alexis Racine, Dr Maxime Bousses.">
     <meta name="keywords" content="vétérinaire Troyes, vétérinaire Saint-Julien-les-Villas, Sancéa Vet, Dr Adrien Le Leuch, Dr Lucie Lengellé, Dr Alexis Racine, Dr Maxime Bousses">
     <meta name="author" content="Sancéa Vet">
@@ -479,20 +488,38 @@
         });
     }
 
-    // Render Turnstile widget when API is available
-    function renderTurnstile() {
-        if (!window.turnstile) return;
-        try {
-            window.turnstile.render(document.getElementById('turnstileWidget'), {
-                sitekey:'0x4AAAAAADQiVSCf-gskcVGP', // <-- Remplacez par votre site key
-                callback: (token) => { document.getElementById('turnstileToken').value = token; }
-            });
-        } catch (e) {
-            // ignore
-        }
+    // Rendu explicite du widget Turnstile, déclenché par onloadTurnstileCallback
+    let turnstileWidgetId = null;
+
+    function showTurnstileError(code) {
+        errorText.textContent = "La vérification anti-spam n'a pas pu se charger"
+            + (code ? ' (code ' + code + ')' : '')
+            + '. Rechargez la page ; si le problème persiste, envoyez le dossier par e-mail à refere@sanceavet.fr.';
+        errorMsg.classList.add('show');
     }
 
-    window.addEventListener('load', () => renderTurnstile());
+    window.renderTurnstile = function () {
+        if (!window.turnstile || turnstileWidgetId !== null) return;
+        try {
+            turnstileWidgetId = window.turnstile.render(document.getElementById('turnstileWidget'), {
+                sitekey: '0x4AAAAAADQiVSCf-gskcVGP',
+                callback: (token) => {
+                    document.getElementById('turnstileToken').value = token;
+                    errorMsg.classList.remove('show');
+                },
+                'expired-callback': () => { document.getElementById('turnstileToken').value = ''; },
+                'error-callback': (code) => {
+                    document.getElementById('turnstileToken').value = '';
+                    showTurnstileError(code);
+                }
+            });
+        } catch (e) {
+            showTurnstileError(null);
+        }
+    };
+
+    // L'API peut être prête avant ou après ce script : on couvre les deux cas.
+    if (window.turnstileReady) window.renderTurnstile();
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -502,6 +529,12 @@
         if (!form.consent.checked) {
             errorText.textContent = "Veuillez accepter l'enregistrement de vos données pour envoyer le formulaire.";
             errorMsg.classList.add('show');
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
+        if (!form.turnstileToken || !form.turnstileToken.value) {
+            showTurnstileError(null);
             errorMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
             return;
         }
@@ -556,8 +589,7 @@
             const data = await res.json();
 
             if (!res.ok || !data.success) {
-                alert(`ERREUR ${res.status}:\n${JSON.stringify(data, null, 2)}`);
-                throw new Error(data.error || `HTTP ${res.status}`);
+                throw new Error(data.error || `Envoi impossible (erreur ${res.status}). Réessayez ou contactez-nous à refere@sanceavet.fr.`);
             }
 
             successMsg.classList.add('show');
@@ -572,6 +604,10 @@
             errorText.textContent = err.message;
             errorMsg.classList.add('show');
         } finally {
+            // Le token Turnstile est à usage unique et déjà consommé par siteverify :
+            // il faut regénérer le widget pour permettre une nouvelle tentative.
+            document.getElementById('turnstileToken').value = '';
+            if (window.turnstile && turnstileWidgetId !== null) window.turnstile.reset(turnstileWidgetId);
             submitBtn.disabled = false;
             btnSpinner.style.display = 'none';
             btnText.textContent = '📨 Envoyer le dossier de référé';

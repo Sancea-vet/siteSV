@@ -373,7 +373,7 @@
         <textarea id="message" placeholder="Décrivez vos besoins..." required></textarea>
     </div>
     <input type="hidden" id="turnstileToken" name="turnstileToken" value="">
-    <div class="cf-turnstile" data-sitekey="0x4AAAAAADQiVSCf-gskcVGP" data-callback="onTurnstileSuccess" style="margin:0.5rem 0"></div>
+    <div class="cf-turnstile" data-sitekey="0x4AAAAAADQiVSCf-gskcVGP" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileError" style="margin:0.5rem 0"></div>
     
     <button type="submit" class="btn-submit">Envoyer la demande</button>
 </form>

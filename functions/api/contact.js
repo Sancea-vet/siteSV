@@ -57,11 +57,9 @@ export async function onRequestPost(context) {
 
     const isReferral = formData.formType === 'referral';
 
-    const toEmail = isReferral
-      ? (env.REFERRAL_TO_EMAIL || 'aleleuch@icloud.com')
-      : (env.TO_EMAIL || 'adrien.leleuch.envt@gmail.com');
+    const toEmail = isReferral ? 'refere@sanceavet.fr' : 'contact@sanceavet.fr';
 
-    const fromEmail = env.FROM_EMAIL || 'contact@sanceavet.fr';
+    const fromEmail = 'contact@sanceavet.fr';
 
     let subject, htmlBody;
 

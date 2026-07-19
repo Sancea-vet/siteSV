@@ -1,9 +1,16 @@
 // Contact form handler - Resend via Cloudflare Pages Function
 
 // Fill the Turnstile token when the widget validates
-window.onTurnstileSuccess = (token) => {
+const setTurnstileToken = (value) => {
     const t = document.getElementById('turnstileToken');
-    if (t) t.value = token;
+    if (t) t.value = value;
+};
+
+window.onTurnstileSuccess = (token) => setTurnstileToken(token);
+window.onTurnstileExpired = () => setTurnstileToken('');
+window.onTurnstileError = (code) => {
+    setTurnstileToken('');
+    console.error('Turnstile error', code);
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -29,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // block submit if no Turnstile token (helps when widget failed to load)
         if (!formData.turnstileToken) {
-            alert('Veuillez compléter la vérification humaine avant d\'envoyer le message.');
+            alert("Veuillez compléter la vérification anti-spam avant d'envoyer le message. Si elle ne s'affiche pas, rechargez la page ou écrivez-nous à contact@sanceavet.fr.");
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
             return;
@@ -53,6 +60,10 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (err) {
             alert('Erreur de connexion. Veuillez vérifier votre connexion et réessayer.');
         } finally {
+            // Le token Turnstile est à usage unique et déjà consommé par siteverify :
+            // il faut regénérer le widget pour permettre un nouvel envoi.
+            setTurnstileToken('');
+            if (window.turnstile) window.turnstile.reset();
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
         }
