@@ -1,24 +1,3 @@
 {
-  "posts": [
-    {
-      "title": "Ouverture de Sancéa Vet",
-      "slug": "ouverture_sancéa",
-      "date": "2026-05-18",
-      "category": "Vie de la clinique",
-      "image": "/assets/img/Capture d’écran 2026-05-18 à 14.28.10.png",
-      "excerpt": "ouverture prévue dans l'été avec une equipe de choc à découvrir bientot",
-      "timeToRead": "1min",
-      "body": "l'ouverture de la clinique est prévue pour le mois d'aout si les travaux se passe bien ."
-    },
-    {
-      "title": "Protéger votre chien de la chaleur estivale",
-      "slug": "proteger-chien-chaleur-estivale",
-      "date": "2026-05-14",
-      "category": "Conseils",
-      "image": "https://images.unsplash.com/photo-1450778869180-41d0601e046e?w=1200&h=800&fit=crop",
-      "excerpt": "Découvrez nos conseils pratiques pour préserver le bien-être de votre compagnon durant les fortes chaleurs.",
-      "timeToRead": "5 min de lecture",
-      "body": "La chaleur peut être dangereuse pour les chiens. Il est essentiel d'offrir de l'eau fraîche en permanence et de choisir des promenades aux heures les plus fraîches.\n\n- Hydratez régulièrement votre animal\n- Évitez les sorties en milieu de journée\n- Surveillez les signes de coup de chaleur\n\nContactez-nous si votre compagnon montre des signes de fatigue ou de respiration rapide."
-    }
-  ]
+  "posts": []
 }
