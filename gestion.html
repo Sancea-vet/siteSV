@@ -828,11 +828,17 @@
  if(e2.length) elig = e2;
  const nextIsBloc = (d<numDays) && unitDaysSet.has(d+1);
  const nextBlocVet = nextIsBloc ? (newA[dayInfo[d+1].key]?.soir || null) : null;
+ // Règle : le véto d'astreinte du week-end évite l'astreinte du lundi soir
+ // (il ne travaille pas le lundi après-midi → conflit avec l'astreinte soir)
+ const prevD = new Date(year, month, d-1);
+ const prevKey = dk_(prevD.getFullYear(), prevD.getMonth(), prevD.getDate());
+ const weAstrPrev = (dayInfo[d].dow===1) ? (newA[prevKey]?.soir ?? astreintes[prevKey]?.soir ?? null) : null;
  const score = (vid) => {
  let s = (soirLoad[vid]||0)*50 + (load[vid]?.dj||0)*2;
  const dist = d - (lastSoirDay[vid]||-999);
  if(dist<=1) s += 200; else if(dist<=3) s += 60;
  if(nextBlocVet && vid===nextBlocVet) s += 120;
+ if(weAstrPrev && vid===weAstrPrev) s += 500;
  // règle fixe : forte pénalité si on a dû garder un interdit (fallback)
  if(forbiddenDay(vid, d)) s += 1200;
  // Préférence : éviter les vétos ayant une règle fixe finissant à 17h (aprem_A)
@@ -858,6 +864,21 @@
  // Règle A/B : un véto fait soit matin_A+aprem_A, soit matin_B+aprem_B (ou une seule demi-journée)
  const vetsIn = (arr, hid) => new Set(arr.find(s=>s.horaire===hid)?.vets || []);
 
+ // Poids relatif par véto : jours/semaine cible = joursAnnuels / (52 − semainesConges)
+ // Sans contrat renseigné → poids 1 (équilibrage standard inchangé)
+ const jsTargetOf = (vid) => {
+ const v = vets.find(x=>x.id===vid);
+ if(!v || !v.joursAnnuels) return null;
+ const sw = 52 - (v.semainesConges||0);
+ return sw>0 ? v.joursAnnuels/sw : null;
+ };
+ const definedTargets = vets.map(v=>jsTargetOf(v.id)).filter(x=>x!=null);
+ const avgTarget = definedTargets.length ? definedTargets.reduce((a,b)=>a+b,0)/definedTargets.length : null;
+ const relWeight = Object.fromEntries(vets.map(v=>{
+ const t = jsTargetOf(v.id);
+ return [v.id, (t!=null && avgTarget) ? Math.max(0.2, t/avgTarget) : 1];
+ }));
+
  for(let d=1; d<=numDays; d++){
  const key = dayInfo[d].key;
  const dow = dayInfo[d].dow;
@@ -878,9 +899,17 @@
  const isNever = (vid, slot) => rules.some(r=>
  r.type==='never_slot' && (r.slot===slot || r.slot==='all') && r.dayOfWeek===dow && parityMatch(r.weekParity, year, month, d) && r.vetId===vid
  );
+ // Règle : le véto d'astreinte du week-end ne travaille pas le lundi après-midi
+ // (le matin reste possible si besoin)
+ let weAstrVet = null;
+ if(dow===1){
+ const pd = new Date(year, month, d-1);
+ const pKey = dk_(pd.getFullYear(), pd.getMonth(), pd.getDate());
+ weAstrVet = newA[pKey]?.soir ?? astreintes[pKey]?.soir ?? null;
+ }
  const canWork = (vid, slot) => {
  if(slot==='matin') return !unavMat.has(vid) && !isNever(vid,'matin');
- if(slot==='aprem') return !unavApr.has(vid) && !isNever(vid,'aprem');
+ if(slot==='aprem') return !unavApr.has(vid) && !isNever(vid,'aprem') && vid!==weAstrVet;
  return true;
  };
  const fixedVetRules = rules.filter(r=>
@@ -896,7 +925,8 @@
  const ba = (bias && a===bias)?-1000:0;
  const bb = (bias && b===bias)?-1000:0;
  if(ba!=bb) return ba-bb;
- return workLoad[a].dj - workLoad[b].dj;
+ // Charge normalisée par le poids contractuel (jours/semaine cible)
+ return workLoad[a].dj/relWeight[a] - workLoad[b].dj/relWeight[b];
  });
  return list[0] || null;
  };
@@ -1026,6 +1056,57 @@
  if(tgt && !tgt.vets.includes(vid) && !matAssigned().includes(vid)) tgt.vets.push(vid);
  });
 
+ // ÉTAPE 5 : équilibrage A/B — 4 vétos → 2A/2B ; 3 vétos → 1A/2B
+ // (impair → préférence au côté B ; pas le samedi, pas d'aprem_B ce jour-là)
+ if(!isSat){
+ const pinned = new Set(fixedVetRules.map(r=>r.vetId));
+ if(astrVet) pinned.add(astrVet);
+ const sideOf = (vid) => {
+ const h = day.matin.find(s=>s.vets.includes(vid))?.horaire
+ || day.aprem.find(s=>s.vets.includes(vid))?.horaire;
+ return h ? (h.endsWith('_A') ? 'A' : 'B') : null;
+ };
+ const minOf = (hid) => {
+ const r = rules.find(r=>r.type==='min_per_slot' && r.horaire===hid && slotMatchDay(r));
+ return Math.max(1, r ? r.min : 1);
+ };
+ // Le véto peut-il quitter son côté sans casser un minimum de sous-créneau ?
+ const canLeave = (vid, fromSide) => ['matin','aprem'].every(slotName=>{
+ const arr = slotName==='matin' ? day.matin : day.aprem;
+ const cur = arr.find(s=>s.vets.includes(vid));
+ if(!cur) return true;
+ const hid = slotName + (fromSide==='A' ? '_A' : '_B');
+ if(cur.horaire!==hid) return true;
+ return cur.vets.length - 1 >= minOf(hid);
+ });
+ const moveVet = (vid, toSide) => {
+ ['matin','aprem'].forEach(slotName=>{
+ const arr = slotName==='matin' ? day.matin : day.aprem;
+ const cur = arr.find(s=>s.vets.includes(vid));
+ if(!cur) return;
+ const targetHid = slotName + (toSide==='A' ? '_A' : '_B');
+ if(cur.horaire===targetHid) return;
+ const tgt = arr.find(s=>s.horaire===targetHid);
+ if(!tgt) return;
+ cur.vets = cur.vets.filter(x=>x!==vid);
+ if(!tgt.vets.includes(vid)) tgt.vets.push(vid);
+ });
+ };
+ let guard = 8;
+ while(guard-- > 0){
+ const dayVids = [...new Set([...matAssigned(), ...aprAssigned()])];
+ const nDay = dayVids.length;
+ const targetA = Math.floor(nDay/2); // 4 → 2A/2B ; 3 → 1A/2B
+ const onA = dayVids.filter(v=>sideOf(v)==='A').length;
+ if(onA === targetA) break;
+ const fromSide = onA > targetA ? 'A' : 'B';
+ const toSide   = fromSide==='A' ? 'B' : 'A';
+ const movable = dayVids.filter(v=>sideOf(v)===fromSide && !pinned.has(v) && canLeave(v, fromSide));
+ if(!movable.length) break;
+ moveVet(movable[0], toSide);
+ }
+ }
+
  const finalVids = [...new Set([...matAssigned(), ...aprAssigned()])];
  finalVids.forEach(vid=>{ workLoad[vid].dj++; });
  newP[key] = day;
@@ -1035,7 +1116,7 @@
  setAstreintes(prev => ({...prev, ...newA}));
  setPlanning(prev => ({...prev, ...newP}));
  setValidated(false);
-},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
+},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes]);
 
 const generateAstreintes = useCallback(()=>{
  const newA = {};
@@ -1236,11 +1317,16 @@ const generateAstreintes = useCallback(()=>{
  if(e2.length) elig = e2;
  const nextIsBloc = (d<numDays) && unitDaysSet.has(d+1);
  const nextBlocVet = nextIsBloc ? (newA[dayInfo[d+1].key]?.soir || null) : null;
+ // Règle : le véto d'astreinte du week-end évite l'astreinte du lundi soir
+ const prevD2 = new Date(year, month, d-1);
+ const prevKey2 = dk_(prevD2.getFullYear(), prevD2.getMonth(), prevD2.getDate());
+ const weAstrPrev2 = (dayInfo[d].dow===1) ? (newA[prevKey2]?.soir ?? astreintes[prevKey2]?.soir ?? null) : null;
  const score = (vid) => {
  let s = (soirLoad[vid]||0)*50 + (load[vid]?.dj||0)*2;
  const dist = d - (lastSoirDay[vid]||-999);
  if(dist<=1) s += 200; else if(dist<=3) s += 60;
  if(nextBlocVet && vid===nextBlocVet) s += 120;
+ if(weAstrPrev2 && vid===weAstrPrev2) s += 500;
  if(forbiddenDay(vid, d)) s += 1200;
  // Préférence : éviter les vétos ayant une règle fixe finissant à 17h (aprem_A)
  const hasFixedApremA = rules.some(r=>
@@ -1267,7 +1353,7 @@ const generateAstreintes = useCallback(()=>{
 
  // FIX fuite mémoire : fusionner avec les mois existants au lieu d'écraser tout le state
  setAstreintes(prev => ({...prev, ...newA}));
-},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays]);
+},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes]);
 
       // ── Génération Planning ASV ────────────────────────────────
       const generateASVPlanning = useCallback(()=>{
@@ -1487,7 +1573,12 @@ const generateAstreintes = useCallback(()=>{
           if(!weeklyH[wn]) weeklyH[wn]={};
           weeklyH[wn][aid]=Q((weeklyH[wn][aid]||0)+h);
         };
-        const remH=(aid,wn)=>Math.max(0, Q(asvRules.hoursPerWeek-getWH(aid,wn)));
+        // Heures contractuelles par ASV (contrats différents) — fallback : règle globale
+        const contractH=(aid)=>{
+          const a=asvs.find(x=>x.id===aid);
+          return (a && a.contractH!=null) ? a.contractH : asvRules.hoursPerWeek;
+        };
+        const remH=(aid,wn)=>Math.max(0, Q(contractH(aid)-getWH(aid,wn)));
         const minSH = asvRules.minShiftH ?? 3.5;
 
         // ── MOTEUR DE ROTATION ─────────────────────────────────────
@@ -1563,11 +1654,11 @@ const generateAstreintes = useCallback(()=>{
               rotOrdered = getRotOrderFor(d, avail, wn);
             }
 
-            // Passe 1 : rotation, dans le quota contrat
+            // Passe 1 : rotation, dans le quota contrat (par ASV)
             const assigned = [];
             for(const asv of rotOrdered) {
               if(assigned.length >= vetCount) break;
-              if(getWH(asv.id, wn) + hoursFullDay <= asvRules.hoursPerWeek + eps)
+              if(getWH(asv.id, wn) + hoursFullDay <= contractH(asv.id) + eps)
                 assigned.push(asv.id);
             }
             // Passe 2 : combler hors quota pour garantir couverture
@@ -1581,7 +1672,7 @@ const generateAstreintes = useCallback(()=>{
             assigned.forEach((aid, i) => {
               const n = assigned.length;
               const order = i === 0 ? 0 : (i === n - 1 && n > 1) ? 999 : 10 + i;
-              const type = getWH(aid, wn) + hoursFullDay > asvRules.hoursPerWeek + eps
+              const type = getWH(aid, wn) + hoursFullDay > contractH(aid) + eps
                 ? 'full_over' : 'full';
               markAssign(key, aid, type, hoursFullDay, order);
               addWH(aid, wn, hoursFullDay);
@@ -1651,13 +1742,13 @@ const generateAstreintes = useCallback(()=>{
         //
         //  MANQUE : allonger un jour déjà assigné si possible,
         //    sinon ajouter un créneau sur un jour non travaillé.
-        //    Objectif : total hebdo = exactement hoursPerWeek.
+        //    Objectif : total hebdo = exactement le contrat de l'ASV.
         // ══════════════════════════════════════════════════════
         sortedWeeks.forEach(wn => {
           const days = weekDaysMap[wn];
           asvs.forEach(asv => {
             const actual = Q(getWH(asv.id, wn));
-            const target = Q(asvRules.hoursPerWeek);
+            const target = Q(contractH(asv.id));
             let delta = Q(actual - target); // >0 trop, <0 manque
 
             if(delta > eps) {
@@ -2346,7 +2437,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               onExportASVXLSX={exportASVXLSX}
               isoWeek={isoWeek} weekParity={weekParity}/>
           )}
-          {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} openDays={openDays} setOpenDays={setOpenDays} horaireTimes={horaireTimes} setHoraireTimes={setHoraireTimes}/>}
+          {tab==='regles'&&<ReglesTab rules={rules} setRules={setRules} vets={vets} setVets={setVets} openDays={openDays} setOpenDays={setOpenDays} horaireTimes={horaireTimes} setHoraireTimes={setHoraireTimes}/>}
           {tab==='stats'&&(
             <StatsTab vets={vets} yearlyData={yearlyData} currentYear={year}
               currentMonth={month} currentPlanning={planning} validated={validated}
@@ -2631,6 +2722,60 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               <span style={{background:'#fce7f3',color:'#be185d',borderRadius:4,padding:'1px 5px',fontWeight:700,fontSize:10}}>S# I</span> Semaine impaire
             </div>
           </div>
+
+          {/* Capacité vétérinaire : planifié vs cible contractuelle */}
+          {hasP && vets.some(v=>v.joursAnnuels) && (()=>{
+            const weeksInMonth = numDays/7;
+            const fmtJ = x => (Math.round(x*2)/2).toFixed(1).replace(/\.0$/,'');
+            const rows = vets.map(v=>{
+              const sw = 52 - (v.semainesConges ?? 0);
+              const js = (v.joursAnnuels && sw>0) ? v.joursAnnuels/sw : null;
+              let planned = 0;
+              Object.entries(planning).forEach(([k,dp])=>{
+                if(!k.startsWith(pfxCur) || !dp) return;
+                ['matin','aprem'].forEach(slot=>{
+                  const arr = toSlotArr(dp[slot]);
+                  if(arr.some(s=>(s.vets||[]).includes(v.id))) planned += 0.5;
+                });
+              });
+              const target = js!=null ? js*weeksInMonth : null;
+              return {v, js, planned, target, delta: target!=null ? target-planned : null};
+            });
+            const totalRest = rows.reduce((s,r)=>s+(r.delta!=null?Math.max(0,r.delta):0),0);
+            return (
+              <div className="g-card" style={{marginTop:16}}>
+                <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:10,
+                  textTransform:'uppercase',letterSpacing:'.05em'}}>
+                  🧮 Capacité vétérinaire — {MOIS[month]} {year}
+                </h3>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))',gap:8}}>
+                  {rows.map(({v,js,planned,target,delta})=>(
+                    <div key={v.id} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',
+                      background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,fontSize:12}}>
+                      <div style={{width:9,height:9,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                      <span style={{fontWeight:600,color:'#1f2937',flex:1}}>{v.name}</span>
+                      {target!=null ? (
+                        <span style={{color:'#6b7280'}}>
+                          {fmtJ(planned)}j / cible {fmtJ(target)}j&nbsp;
+                          <strong style={{color: delta>0.5 ? '#0d9488' : delta<-0.5 ? '#dc2626' : '#059669'}}>
+                            {delta>0.5 ? `↗ +${fmtJ(delta)}j dispo` : delta<-0.5 ? `⚠ ${fmtJ(-delta)}j au-delà` : '✓'}
+                          </strong>
+                        </span>
+                      ):(
+                        <span style={{color:'#9ca3af'}}>{fmtJ(planned)}j — contrat non renseigné</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <p style={{fontSize:12,marginTop:10,marginBottom:0,fontWeight:600,
+                  color: totalRest>0.5 ? '#0d9488' : '#059669'}}>
+                  {totalRest>0.5
+                    ? `↗ Après astreintes et couvertures minimales, il reste ≈ ${fmtJ(totalRest)} jour(s) véto à consommer ce mois-ci.`
+                    : '✓ La capacité vétérinaire du mois est entièrement consommée par le planning actuel.'}
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Alertes */}
           {totalAlerts>0&&(
@@ -3113,7 +3258,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           </div>
 
           {section==='regles'&&<ASVRegles asvRules={asvRules} setAsvRules={setAsvRules}
-            asvs={asvs} asvPersonalRules={asvPersonalRules} setAsvPersonalRules={setAsvPersonalRules}/>}
+            asvs={asvs} setAsvs={setAsvs} asvPersonalRules={asvPersonalRules} setAsvPersonalRules={setAsvPersonalRules}/>}
           {section==='equipe'&&<ASVEquipe asvs={asvs} setAsvs={setAsvs}/>}
 
           {section==='planning'&&(<>
@@ -3156,7 +3301,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               <div className="g-card" style={{marginBottom:16}}>
                 <h3 style={{fontSize:13,fontWeight:600,color:'#374151',marginBottom:12,
                   textTransform:'uppercase',letterSpacing:'.05em'}}>
-                  Heures par semaine — objectif {asvRules.hoursPerWeek}h
+                  Heures par semaine — objectif : contrat de chaque ASV
                 </h3>
                 <div style={{overflowX:'auto'}}>
                   <table style={{borderCollapse:'collapse',fontSize:12,minWidth:'100%'}}>
@@ -3175,19 +3320,21 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                     <tbody>
                       {asvs.map(a=>{
                         const tot=Object.values(weeklyStats).reduce((s,m)=>s+(m[a.id]||0),0);
+                        const targetH=a.contractH??asvRules.hoursPerWeek;
                         return(
                           <tr key={a.id} style={{borderBottom:'1px solid #f1f5f9'}}>
                             <td style={{padding:'8px 12px'}}>
                               <div style={{display:'flex',alignItems:'center',gap:7}}>
                                 <div style={{width:9,height:9,borderRadius:'50%',background:a.color,flexShrink:0}}/>
                                 <span style={{fontWeight:500,color:'#1f2937'}}>{a.name}</span>
+                                <span style={{fontSize:10,color:'#9ca3af',fontWeight:600}}>({targetH}h)</span>
                               </div>
                             </td>
                             {sortedWeeks.map(wn=>{
                               const h=(weeklyStats[wn]||{})[a.id]||0;
-                              const pct=Math.min(100,h/asvRules.hoursPerWeek*100);
-                              const over=h>asvRules.hoursPerWeek+0.25;
-                              const ok=!over&&h>=asvRules.hoursPerWeek-0.25;
+                              const pct=Math.min(100,h/targetH*100);
+                              const over=h>targetH+0.25;
+                              const ok=!over&&h>=targetH-0.25;
                               const under=!over&&!ok&&h>0;
                               const col=over?'#dc2626':ok?'#059669':under?'#d97706':'#9ca3af';
                               return(
@@ -3504,8 +3651,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               flexWrap:'wrap'}}>
               {asvs.map(a=>{
                 const h=hoursMap[a.id];
-                const ok=h>=asvRules.hoursPerWeek-0.25&&h<=asvRules.hoursPerWeek+0.25;
-                const over=h>asvRules.hoursPerWeek+0.25;
+                const targetH=a.contractH??asvRules.hoursPerWeek;
+                const ok=h>=targetH-0.25&&h<=targetH+0.25;
+                const over=h>targetH+0.25;
                 return(
                   <div key={a.id} style={{display:'flex',alignItems:'center',gap:6,
                     padding:'4px 10px',borderRadius:20,
@@ -3749,7 +3897,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Règles ASV ────────────────────────────────────────────
-    function ASVRegles({asvRules,setAsvRules,asvs,asvPersonalRules,setAsvPersonalRules}){
+    function ASVRegles({asvRules,setAsvRules,asvs,setAsvs,asvPersonalRules,setAsvPersonalRules}){
       return(
         <div style={{maxWidth:640}}>
           <h3 style={{fontFamily:"'Playfair Display',serif",fontSize:18,fontWeight:700,color:'#1f2937',marginBottom:4}}>Règles ASV</h3>
@@ -3761,8 +3909,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
               <div style={{display:'flex',alignItems:'center',gap:12}}>
                 <div style={{flex:1}}>
-                  <span className="g-label">Heures par semaine</span>
-                  <p style={{fontSize:12,color:'#9ca3af',marginBottom:6}}>Durée contractuelle hebdomadaire (défaut légal : 35h)</p>
+                  <span className="g-label">Heures par semaine (défaut)</span>
+                  <p style={{fontSize:12,color:'#9ca3af',marginBottom:6}}>Valeur par défaut pour les ASV sans contrat spécifique ci-dessous (défaut légal : 35h)</p>
                 </div>
                 <div style={{display:'flex',alignItems:'center',gap:8}}>
                   <button onClick={()=>setAsvRules(r=>({...r,hoursPerWeek:Math.max(20,r.hoursPerWeek-0.5)}))}
@@ -3834,6 +3982,34 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 <div key={i} style={{display:'flex',gap:8,padding:'8px 12px',background:'#fff',borderRadius:8,
                   border:'1px solid #e2e8f0',fontSize:13,color:'#374151'}}>
                   {t}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Heures contractuelles par ASV */}
+          <div className="g-card" style={{marginTop:16}}>
+            <h4 style={{fontSize:13,fontWeight:600,color:'#374151',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:6}}>
+              📄 Heures contractuelles par ASV
+            </h4>
+            <p style={{fontSize:12,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
+              Chaque ASV peut avoir un contrat différent. La génération vise exactement ce volume hebdomadaire pour chacune.
+              Laissez vide pour utiliser la valeur par défaut ({asvRules.hoursPerWeek}h).
+            </p>
+            {asvs.length===0 && (
+              <p style={{fontSize:13,color:'#9ca3af',fontStyle:'italic'}}>Aucune ASV enregistrée.</p>
+            )}
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:8}}>
+              {asvs.map(asv=>(
+                <div key={asv.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',
+                  background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:asv.color,flexShrink:0}}/>
+                  <span style={{fontWeight:600,fontSize:13,color:'#1f2937',flex:1}}>{asv.name}</span>
+                  <input type="number" min="5" max="48" step="0.5" value={asv.contractH ?? ''}
+                    placeholder={String(asvRules.hoursPerWeek)}
+                    onChange={e=>{const val=e.target.value; setAsvs(prev=>prev.map(x=>x.id===asv.id?{...x,contractH:val===''?undefined:Math.max(0,+val)}:x));}}
+                    className="g-input" style={{width:80,textAlign:'right'}}/>
+                  <span style={{fontSize:12,color:'#6b7280',fontWeight:600}}>h/sem</span>
                 </div>
               ))}
             </div>
@@ -4131,7 +4307,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Règles ─────────────────────────────────────────
-    function ReglesTab({rules,setRules,vets,openDays,setOpenDays,horaireTimes,setHoraireTimes}){
+    function ReglesTab({rules,setRules,vets,setVets,openDays,setOpenDays,horaireTimes,setHoraireTimes}){
       const [rType,        setRType]        = useState('min_per_slot');
       const [slot,         setSlot]         = useState('matin');
       const [dType,        setDType]        = useState('weekday');
@@ -4226,6 +4402,51 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 <button key={i} onClick={()=>setOpenDays(prev=>{const n=[...prev];n[i]=!n[i];return n;})}
                   className={'day-toggle '+(openDays[i]?'on':'off')}>{j}</button>
               ))}
+            </div>
+          </div>
+
+          {/* ── Temps de travail vétérinaire ── */}
+          <div className="g-card" style={{marginBottom:16}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:4,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>
+              📅 Temps de travail vétérinaire
+            </h3>
+            <p style={{fontSize:12,color:'#9ca3af',marginBottom:14,lineHeight:1.6}}>
+              Jours de travail annuels et semaines de congés par vétérinaire → jours/semaine moyens à planifier.
+              Le générateur répartit les jours proportionnellement à cette cible, et l'onglet Planning indique
+              s'il reste du temps véto à consommer une fois les astreintes et couvertures minimales assurées.
+            </p>
+            <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              {vets.map(v=>{
+                const sw = 52 - (v.semainesConges ?? 0);
+                const js = (v.joursAnnuels && sw > 0) ? v.joursAnnuels / sw : null;
+                return (
+                  <div key={v.id} style={{display:'flex',alignItems:'flex-end',gap:12,padding:'10px 14px',
+                    background:'#f8fafc',border:'1px solid #e2e8f0',borderRadius:10,flexWrap:'wrap'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,minWidth:120,paddingBottom:9}}>
+                      <div style={{width:10,height:10,borderRadius:'50%',background:v.color,flexShrink:0}}/>
+                      <span style={{fontWeight:600,fontSize:13,color:'#1f2937'}}>{v.name}</span>
+                    </div>
+                    <div>
+                      <span className="g-label">Jours travaillés / an</span>
+                      <input type="number" min="0" max="365" step="1" value={v.joursAnnuels ?? ''} placeholder="ex : 200"
+                        onChange={e=>{const val=e.target.value; setVets(prev=>prev.map(x=>x.id===v.id?{...x,joursAnnuels:val===''?undefined:Math.max(0,+val)}:x));}}
+                        className="g-input" style={{width:110}}/>
+                    </div>
+                    <div>
+                      <span className="g-label">Semaines de congés</span>
+                      <input type="number" min="0" max="26" step="1" value={v.semainesConges ?? ''} placeholder="ex : 5"
+                        onChange={e=>{const val=e.target.value; setVets(prev=>prev.map(x=>x.id===v.id?{...x,semainesConges:val===''?undefined:Math.max(0,+val)}:x));}}
+                        className="g-input" style={{width:110}}/>
+                    </div>
+                    <div style={{marginLeft:'auto',textAlign:'right'}}>
+                      <span className="g-label">Jours / semaine</span>
+                      <div style={{fontSize:17,fontWeight:700,color:js?'#0d9488':'#9ca3af',paddingBottom:2}}>
+                        {js ? js.toFixed(2).replace(/\.?0+$/,'') : '—'}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
