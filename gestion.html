@@ -333,6 +333,40 @@
       return [raw];
     };
 
+    // ─── Chargement paresseux de scripts externes ──────────────
+    // (RGPD : les bibliothèques tierces ne sont chargées qu'au moment
+    //  où l'utilisateur déclenche l'action qui en a besoin)
+    const _scriptCache = {};
+    function loadScriptOnce(src) {
+      if (!_scriptCache[src]) {
+        _scriptCache[src] = new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = () => { delete _scriptCache[src]; reject(new Error('Échec du chargement de ' + src)); };
+          document.head.appendChild(s);
+        });
+      }
+      return _scriptCache[src];
+    }
+    async function ensureXLSX() {
+      if (window.XLSX) return window.XLSX;
+      await loadScriptOnce('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js');
+      return window.XLSX;
+    }
+    async function ensureGoogleApis() {
+      await Promise.all([
+        loadScriptOnce('https://accounts.google.com/gsi/client'),
+        loadScriptOnce('https://apis.google.com/js/api.js'),
+      ]);
+      await new Promise((res, rej) => window.gapi.load('client', { callback: res, onerror: rej }));
+      if (!window.gapi.client.calendar) {
+        await window.gapi.client.load('https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest');
+      }
+    }
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
     // ─── App ───────────────────────────────────────────────────
     const DEFAULT_VETS = [
       {id:'v1',name:'Adrien', email:'martin@clinique.fr', phone:'', color:PALETTE[0]},
@@ -2241,9 +2275,10 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       },[asvPlanning,asvs,year,month]);
 
       // ── Export XLSX – Planning ASV (une feuille par semaine) ───
-      const exportASVXLSX = useCallback(()=>{
-        const XL=window.XLSX;
-        if(!XL){alert('SheetJS non chargé – vérifiez votre connexion.');return;}
+      const exportASVXLSX = useCallback(async ()=>{
+        let XL;
+        try { XL = await ensureXLSX(); }
+        catch(e){ alert('SheetJS non chargé – vérifiez votre connexion.'); return; }
         const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}-`;
         const fmtH=h=>{const hh=Math.floor(h),mm=Math.round((h-hh)*60);return`${hh}h${String(mm).padStart(2,'0')}`;};
 
@@ -4729,15 +4764,133 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
     // ─── Onglet Sync ───────────────────────────────────────────
     function SyncTab({validated,totalAlerts,planning,vets,year,month,gclientId,setGclientId,calId,setCalId,onExportICS,onExportCSV,onExportASVICS,onExportASVXLSX,asvPlanning,astreintes,freepbxWebhook,setFreepbxWebhook}){
-      const [copied, setCopied] = useState(false);
       const planDays=Object.keys(planning).filter(k=>planning[k]).length;
       const hasP=planDays>0;
       const monthPrefix=`${year}-${String(month+1).padStart(2,'0')}-`;
       const hasASVP=asvPlanning&&Object.keys(asvPlanning).some(k=>k.startsWith(monthPrefix));
-      const s1='<'+'script src="https://accounts.google.com/gsi/client"><'+'/script>';
-      const s2='<'+'script src="https://apis.google.com/js/api.js"><'+'/script>';
-      const code=s1+'\n'+s2+'\n\nconst GC_CONFIG = {\n  clientId:   "'+(gclientId||'VOTRE_CLIENT_ID.apps.googleusercontent.com')+'",\n  calendarId: "'+(calId||'primary')+'",\n};\n\nfunction connectGoogle() {\n  google.accounts.oauth2.initTokenClient({\n    client_id: GC_CONFIG.clientId,\n    scope: "https://www.googleapis.com/auth/calendar.events",\n    callback: token => { gapi.client.setToken(token); syncPlanning(); },\n  }).requestAccessToken();\n}\n\nasync function syncPlanning() {\n  await gapi.client.load("calendar","v3");\n  for (const [date, dp] of Object.entries(planningData)) {\n    for (const slot of ["matin","aprem"]) {\n      const s = dp[slot]; if (!s||!s.vets.length) continue;\n      const names  = s.vets.map(id => vetsById[id].name).join(", ");\n      const emails = s.vets.map(id => vetsById[id].email).filter(Boolean);\n      await gapi.client.calendar.events.insert({\n        calendarId: GC_CONFIG.calendarId,\n        resource: {\n          summary:   (slot==="matin"?"Matin ":"Après-midi ") + horaires[s.horaire] + " – " + names,\n          start:     { date },\n          end:       { date },\n          attendees: emails.map(email => ({ email })),\n        },\n      });\n    }\n  }\n}';
-      const copy=()=>{navigator.clipboard.writeText(code).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2000);});};
+
+      // ── Synchronisation Google Calendar (OAuth + API) ──────────
+      const [syncState, setSyncState] = useState('idle'); // idle|loading|auth|sync|done|warn|error
+      const [syncMsg,   setSyncMsg]   = useState('');
+      const [sendInvites, setSendInvites] = useState(true);
+      const [inclAstr,    setInclAstr]    = useState(true);
+      const busy = syncState==='loading'||syncState==='auth'||syncState==='sync';
+      const vetsSansEmail = vets.filter(v=>!v.email||!v.email.includes('@'));
+
+      const buildMonthEvents = () => {
+        const vetsById=Object.fromEntries(vets.map(v=>[v.id,v]));
+        const fmtT=h=>{const hh=Math.floor(h),mn=Math.round((h-hh)*60);return `${String(hh).padStart(2,'0')}:${String(mn).padStart(2,'0')}:00`;};
+        const addDays=(dateKey,n)=>{const[y,m2,d2]=dateKey.split('-').map(Number);const dt=new Date(y,m2-1,d2+n);return dk(dt.getFullYear(),dt.getMonth(),dt.getDate());};
+        const priv={private:{sanceavetSync:'1'}};
+        const events=[];
+        Object.keys(planning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(dateKey=>{
+          const dp=planning[dateKey]; if(!dp) return;
+          ['matin','aprem'].forEach(slot=>{
+            toSlotArr(dp[slot]).forEach(subSlot=>{
+              if(!subSlot||!subSlot.vets||!subSlot.vets.length) return;
+              const names=subSlot.vets.map(id=>vetsById[id]?.name||id).join(', ');
+              const t=HORAIRE_TIMES[subSlot.horaire]||(slot==='matin'?{start:8.5,end:12}:{start:13.5,end:19});
+              events.push({
+                summary:(slot==='matin'?'🌅 Matin ':'🌇 Après-midi ')+(HORAIRES[subSlot.horaire]?.short||'')+' – '+names,
+                start:{dateTime:`${dateKey}T${fmtT(t.start)}`,timeZone:'Europe/Paris'},
+                end:{dateTime:`${dateKey}T${fmtT(t.end)}`,timeZone:'Europe/Paris'},
+                attendees:subSlot.vets.map(id=>vetsById[id]?.email).filter(e=>e&&e.includes('@')).map(email=>({email})),
+                extendedProperties:priv,
+                description:'Planning Sancéa Vet — synchronisé automatiquement depuis l\'outil de gestion.',
+              });
+            });
+          });
+        });
+        if(inclAstr){
+          Object.keys(astreintes||{}).filter(k=>k.startsWith(monthPrefix)).sort().forEach(dateKey=>{
+            const a=astreintes[dateKey]||{};
+            const mkEv=(vid,label,startH,endH,nextDay)=>{
+              const v=vetsById[vid]; if(!v) return;
+              events.push({
+                summary:`📞 Astreinte ${label} – ${v.name}`,
+                start:{dateTime:`${dateKey}T${fmtT(startH)}`,timeZone:'Europe/Paris'},
+                end:{dateTime:`${nextDay?addDays(dateKey,1):dateKey}T${fmtT(endH)}`,timeZone:'Europe/Paris'},
+                attendees:(v.email&&v.email.includes('@'))?[{email:v.email}]:[],
+                extendedProperties:priv,
+                description:'Astreinte Sancéa Vet — synchronisée automatiquement depuis l\'outil de gestion.',
+              });
+            };
+            if(a.midi) mkEv(a.midi,'midi',12,14,false);
+            if(a.soir) mkEv(a.soir,'soir',19,8.5,true);
+          });
+        }
+        return events;
+      };
+
+      const runSync = async () => {
+        try {
+          setSyncState('loading'); setSyncMsg('Chargement des bibliothèques Google…');
+          await ensureGoogleApis();
+
+          setSyncState('auth'); setSyncMsg('Connexion au compte Google — validez la fenêtre qui s\'ouvre…');
+          const tokenResp = await new Promise((resolve,reject)=>{
+            try {
+              const tc = window.google.accounts.oauth2.initTokenClient({
+                client_id: gclientId.trim(),
+                scope: 'https://www.googleapis.com/auth/calendar.events',
+                callback: r => (r&&r.access_token) ? resolve(r) : reject(new Error(r&&r.error ? r.error : 'Autorisation refusée')),
+                error_callback: e => reject(new Error(e&&e.message ? e.message : 'Fenêtre de connexion fermée ou bloquée')),
+              });
+              tc.requestAccessToken();
+            } catch(e){ reject(e); }
+          });
+          window.gapi.client.setToken({access_token: tokenResp.access_token});
+          const calendarId=(calId||'primary').trim()||'primary';
+
+          const events=buildMonthEvents();
+          if(!events.length){ setSyncState('error'); setSyncMsg('❌ Aucun événement à synchroniser pour '+MOIS[month]+' '+year+'.'); return; }
+
+          // Purge des événements créés par une synchro précédente (re-synchro sans doublons)
+          setSyncState('sync'); setSyncMsg('Recherche des anciens événements Sancéa Vet…');
+          const mm=String(month+1).padStart(2,'0');
+          const nY=month===11?year+1:year, nM=month===11?0:month+1;
+          const timeMin=`${year}-${mm}-01T00:00:00Z`;
+          const timeMax=`${nY}-${String(nM+1).padStart(2,'0')}-03T00:00:00Z`;
+          const oldIds=[]; let pageToken;
+          do {
+            const res=await window.gapi.client.calendar.events.list({
+              calendarId, privateExtendedProperty:'sanceavetSync=1',
+              timeMin, timeMax, maxResults:2500, pageToken,
+            });
+            (res.result.items||[]).forEach(ev=>oldIds.push(ev.id));
+            pageToken=res.result.nextPageToken;
+          } while(pageToken);
+          for(let i=0;i<oldIds.length;i++){
+            setSyncMsg(`Remplacement des anciens événements… ${i+1}/${oldIds.length}`);
+            try { await window.gapi.client.calendar.events.delete({calendarId, eventId:oldIds[i], sendUpdates:'none'}); }
+            catch(e){ /* événement déjà supprimé côté Google */ }
+            await sleep(60);
+          }
+
+          let done=0, failed=0;
+          for(const ev of events){
+            setSyncMsg(`Création des événements… ${done+failed+1}/${events.length}`);
+            try {
+              await window.gapi.client.calendar.events.insert({
+                calendarId, sendUpdates: sendInvites?'all':'none', resource: ev,
+              });
+              done++;
+            } catch(e){ failed++; console.error('Insertion échouée', e); }
+            await sleep(120);
+          }
+          if(failed){
+            setSyncState('warn');
+            setSyncMsg(`⚠ Synchronisation partielle : ${done} événement(s) créé(s), ${failed} échec(s) — voir la console.`);
+          } else {
+            setSyncState('done');
+            setSyncMsg(`✓ ${done} événement(s) synchronisé(s) sur Google Calendar`+(oldIds.length?` (${oldIds.length} ancien(s) remplacé(s))`:'')+`. Chaque véto invité retrouve le planning dans son agenda.`);
+          }
+        } catch(e){
+          console.error(e);
+          setSyncState('error');
+          setSyncMsg('❌ '+((e&&e.result&&e.result.error&&e.result.error.message)||(e&&e.message)||'Erreur inconnue'));
+        }
+      };
       return(
         <div style={{maxWidth:720}}>
           <h2 className="section-title">Synchronisation Google Calendar</h2>
@@ -4796,8 +4949,13 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             )}
           </div>
 
-          <div className="g-card" style={{marginBottom:20}}>
-            <h3 style={{fontSize:15,fontWeight:600,marginBottom:14,color:'#1f2937'}}>🔗 Google Calendar API</h3>
+          <div className="g-card" style={{marginBottom:20,border:'1.5px solid #a5b4fc'}}>
+            <h3 style={{fontSize:15,fontWeight:600,marginBottom:6,color:'#1f2937'}}>🔗 Synchronisation Google Calendar des vétos</h3>
+            <p style={{fontSize:13,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
+              Publie le planning de <strong>{MOIS[month]} {year}</strong> dans l'agenda Google choisi et <strong>invite chaque vétérinaire par son email</strong> :
+              les créneaux apparaissent automatiquement dans leur agenda Google personnel.
+              Une nouvelle synchronisation remplace les événements créés précédemment (pas de doublons).
+            </p>
             <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
               <div style={{flex:'2 1 280px'}}>
                 <span className="g-label">Client ID OAuth</span>
@@ -4810,15 +4968,49 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   className="g-input" style={{width:'100%'}}/>
               </div>
             </div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-              <span style={{fontSize:11,color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'.06em'}}>Code d'intégration</span>
-              <button onClick={copy} className="btn-ghost" style={{padding:'4px 12px',fontSize:11}}>{copied?'✓ Copié !':'Copier'}</button>
+            <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14,fontSize:13,color:'#374151'}}>
+              <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+                <input type="checkbox" checked={sendInvites} onChange={e=>setSendInvites(e.target.checked)} disabled={busy}/>
+                Envoyer les invitations par email aux vétérinaires (notification Google Calendar)
+              </label>
+              <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+                <input type="checkbox" checked={inclAstr} onChange={e=>setInclAstr(e.target.checked)} disabled={busy}/>
+                Inclure les astreintes (midi 12h–14h, soir 19h–8h30 le lendemain)
+              </label>
             </div>
-            <div className="code-block" style={{marginBottom:14}}><pre>{code}</pre></div>
-            <button disabled={!gclientId||!validated} className="btn-teal"
-              onClick={()=>alert('Déployez avec le Client ID configuré dans Google Cloud Console.')}>
-              🔗 Connecter & Synchroniser
+            {vetsSansEmail.length>0&&(
+              <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,
+                padding:'10px 14px',fontSize:13,color:'#92400e',marginBottom:12}}>
+                ⚠️ Email manquant ou invalide pour : <strong>{vetsSansEmail.map(v=>v.name).join(', ')}</strong> —
+                à renseigner dans l'onglet 👥 Équipe pour qu'ils reçoivent les invitations.
+              </div>
+            )}
+            {hasP&&!validated&&(
+              <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,
+                padding:'10px 14px',fontSize:13,color:'#92400e',marginBottom:12}}>
+                ⚠️ Le planning n'est pas encore validé — pensez à cliquer « Valider » dans l'onglet Planning avant de synchroniser.
+              </div>
+            )}
+            <button disabled={!gclientId||!hasP||busy} className="btn-teal" onClick={runSync}>
+              {busy?'⏳ Synchronisation en cours…':'🔗 Connecter & Synchroniser '+MOIS[month]+' '+year}
             </button>
+            {syncMsg&&(
+              <div style={{marginTop:12,padding:'10px 14px',borderRadius:8,fontSize:13,lineHeight:1.6,
+                background:syncState==='done'?'#f0fdf4':syncState==='error'?'#fef2f2':syncState==='warn'?'#fffbeb':'#f0f9ff',
+                border:'1px solid '+(syncState==='done'?'#bbf7d0':syncState==='error'?'#fecaca':syncState==='warn'?'#fde68a':'#bae6fd'),
+                color:syncState==='done'?'#166534':syncState==='error'?'#b91c1c':syncState==='warn'?'#92400e':'#075985'}}>
+                {syncMsg}
+              </div>
+            )}
+            <details style={{marginTop:14}}>
+              <summary style={{fontSize:12,color:'#6b7280',cursor:'pointer',fontWeight:600}}>⚙️ Configuration requise (une seule fois, dans Google Cloud Console)</summary>
+              <ol style={{fontSize:12,color:'#6b7280',lineHeight:1.8,margin:'8px 0 0 18px'}}>
+                <li>Créez un projet sur <code style={{background:'#f1f5f9',padding:'1px 4px',borderRadius:3}}>console.cloud.google.com</code> et activez l'API <strong>Google Calendar</strong>.</li>
+                <li>Créez un identifiant <strong>OAuth 2.0 – Application Web</strong> et ajoutez l'URL de ce site dans « Origines JavaScript autorisées ».</li>
+                <li>Collez le Client ID ci-dessus — il est sauvegardé automatiquement.</li>
+                <li>« ID agenda » : <code style={{background:'#f1f5f9',padding:'1px 4px',borderRadius:3}}>primary</code> pour votre agenda, ou l'ID d'un agenda partagé de la clinique (Paramètres de l'agenda → ID de l'agenda).</li>
+              </ol>
+            </details>
           </div>
           {/* FreePBX */}
           <div className="g-card" style={{marginBottom:20}}>
@@ -4921,10 +5113,91 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         });
       };
 
+      // ── Export des statistiques (CSV / Excel) ────────────────
+      const monthsLabels=Object.entries(months).sort((a,b)=>+a[0]-+b[0]).map(([,m])=>m.label).join(', ');
+
+      const buildStatsRows=()=>{
+        const rows=[];
+        rows.push(['Vétérinaire','Matins',`Matin ${HORAIRES.matin_A.short}`,`Matin ${HORAIRES.matin_B.short}`,
+          'Après-midis',`Après-midi ${HORAIRES.aprem_A.short}`,`Après-midi ${HORAIRES.aprem_B.short}`,
+          'Total demi-journées','Équiv. jours complets','Astreintes (jours)','Blocs WE/JF']);
+        vets.forEach(v=>{
+          const d=data[v.id]||{matin:0,aprem:0,matinH:{matin_A:0,matin_B:0},apremH:{aprem_A:0,aprem_B:0}};
+          const total=d.matin+d.aprem;
+          rows.push([v.name,d.matin,d.matinH.matin_A,d.matinH.matin_B,
+            d.aprem,d.apremH.aprem_A,d.apremH.aprem_B,
+            total,+(total/2).toFixed(1),d.astrDays||0,d.astrBlocsWEJF||0]);
+        });
+        const sum=f=>vets.reduce((s,v)=>s+f(data[v.id]||{}),0);
+        rows.push(['Total équipe',sum(d=>d.matin||0),sum(d=>d.matinH?.matin_A||0),sum(d=>d.matinH?.matin_B||0),
+          sum(d=>d.aprem||0),sum(d=>d.apremH?.aprem_A||0),sum(d=>d.apremH?.aprem_B||0),
+          totalDJ,+(totalDJ/2).toFixed(1),sum(d=>d.astrDays||0),sum(d=>d.astrBlocsWEJF||0)]);
+        return rows;
+      };
+
+      const exportStatsCSV=()=>{
+        const rows=buildStatsRows();
+        const esc=v=>{const s=v==null?'':String(v);return /;|\n|\r|"/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+        const csv='\ufeff'+[
+          `Statistiques Sancéa Vet — ${viewYear}`,
+          `Mois inclus;${esc(monthsLabels)}`,
+          '',
+          ...rows.map(r=>r.map(esc).join(';'))
+        ].join('\r\n');
+        const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download=`stats-vetos-${viewYear}.csv`;a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      const exportStatsXLSX=async()=>{
+        let XL;
+        try { XL=await ensureXLSX(); }
+        catch(e){ alert('SheetJS non chargé – vérifiez votre connexion.'); return; }
+        const rows=buildStatsRows();
+        const aoa=[[`Statistiques annuelles Sancéa Vet — ${viewYear}`],[`Mois inclus : ${monthsLabels}`],[],...rows];
+        const ws=XL.utils.aoa_to_sheet(aoa);
+        ws['!cols']=[{wch:22},...rows[0].slice(1).map(()=>({wch:17}))];
+        ws['!merges']=[
+          {s:{r:0,c:0},e:{r:0,c:rows[0].length-1}},
+          {s:{r:1,c:0},e:{r:1,c:rows[0].length-1}},
+        ];
+        const wb=XL.utils.book_new();
+        XL.utils.book_append_sheet(wb,ws,`Stats ${viewYear}`);
+        try {
+          const out=XL.write(wb,{bookType:'xlsx',type:'array'});
+          const blob=new Blob([out],{type:'application/octet-stream'});
+          const url=URL.createObjectURL(blob);
+          const a=document.createElement('a');
+          a.href=url;a.download=`stats-vetos-${viewYear}.xlsx`;a.click();
+          setTimeout(()=>URL.revokeObjectURL(url),200);
+        } catch(e){
+          console.error('Erreur export XLSX stats:',e);
+          alert('❌ Erreur lors de l\'export Excel : '+e.message);
+        }
+      };
+
       return(
         <div style={{maxWidth:900}}>
-          <h2 className="section-title">Statistiques annuelles</h2>
-          <p className="section-desc">Compteur de demi-journées par vétérinaire, calculé sur les mois validés.</p>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',flexWrap:'wrap',gap:12}}>
+            <div>
+              <h2 className="section-title">Statistiques annuelles</h2>
+              <p className="section-desc">Compteur de demi-journées par vétérinaire, calculé sur les mois validés.</p>
+            </div>
+            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+              <button onClick={exportStatsCSV} disabled={!hasMonths} className="btn-ghost"
+                title="Export CSV (séparateur ;) — s'ouvre dans Excel / Google Sheets"
+                style={{fontSize:12,padding:'6px 14px',color:'#7c3aed',borderColor:'#c4b5fd'}}>
+                ⬇ Export CSV {viewYear}
+              </button>
+              <button onClick={exportStatsXLSX} disabled={!hasMonths} className="btn-teal"
+                title="Export Excel — tableau complet avec totaux équipe"
+                style={{fontSize:12,padding:'6px 14px'}}>
+                📊 Export Excel {viewYear}
+              </button>
+            </div>
+          </div>
 
           {/* Sélecteur année + mois validés */}
           <div style={{display:'flex',gap:12,alignItems:'flex-start',marginBottom:24,flexWrap:'wrap'}}>
