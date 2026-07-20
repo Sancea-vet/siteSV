@@ -610,6 +610,35 @@
             padding: 6rem 2rem;
         }
 
+        .recrutement {
+            padding: 6rem 2rem;
+            background: var(--bg-alt);
+        }
+
+        .recrutement-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .recrutement-content p {
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+        }
+
+        .recrutement-content .btn {
+            margin-top: 0.5rem;
+        }
+
+        .recrutement-image img {
+            display: block;
+            width: 100%;
+            height: auto;
+            border-radius: 20px;
+            box-shadow: var(--shadow-lg);
+        }
+
         .blog-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -1053,6 +1082,7 @@
         @media (max-width: 968px) {
             .hero-container,
             .about-grid,
+            .recrutement-grid,
             .contact-grid {
                 grid-template-columns: 1fr;
                 gap: 2rem;
@@ -1070,7 +1100,8 @@
                 justify-content: center;
             }
 
-            .hero-image {
+            .hero-image,
+            .recrutement-image {
                 order: -1;
             }
 

@@ -63,7 +63,7 @@
     
     <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260719c">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260720c">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
@@ -90,6 +90,7 @@
                 <li><a href="#equipe">Équipe</a></li>
                 <li><a href="#actualites">Actualités</a></li>
                 <li><a href="referencement-veterinaire.html">Référer un patient</a></li>
+                <li><a href="#recrutement">Recrutement</a></li>
                 <li><a href="#contact">Contact</a></li>
             </ul>
         </div>
@@ -297,14 +298,14 @@
     <!-- Blog / Actualités -->
     <section class="blog" id="actualites">
         <div class="container">
-            <div class="section-header fade-in" style="display:flex; flex-wrap:wrap; justify-content:space-between; align-items:flex-end; gap:1rem;">
-                <div>
-                    <h2>Actualités & Conseils</h2>
-                    <p>Découvrez nos derniers articles, conseils santé et actualités de la clinique</p>
-                </div>
-                <a href="blog.html" class="btn btn-secondary">Voir tous les articles</a>
+            <div class="section-header fade-in">
+                <h2>Actualités & Conseils</h2>
+                <p>Découvrez nos derniers articles, conseils santé et actualités de la clinique</p>
             </div>
             <div class="blog-grid" id="blogGrid"></div>
+            <div class="fade-in" style="text-align:center; margin-top:2.5rem;">
+                <a href="blog.html" class="btn btn-secondary">Voir tous les articles</a>
+            </div>
 
             <div class="social-follow fade-in">
                 <p>Suivez le quotidien de la clinique sur nos réseaux sociaux</p>
@@ -326,7 +327,25 @@
         </div>
     </section>
 
-   
+    <!-- Recrutement -->
+    <section class="recrutement" id="recrutement">
+        <div class="container">
+            <div class="section-header fade-in">
+                <h2>Recrutement</h2>
+                <p>Rejoignez une équipe passionnée au service du bien-être animal</p>
+            </div>
+            <div class="recrutement-grid">
+                <div class="recrutement-content fade-in">
+                    <p>Sancéa Vet est toujours à la recherche de nouveaux talents. Si vous êtes ASV ou vétérinaire, n'hésitez pas à nous écrire à <a href="mailto:rh@sanceavet.fr">rh@sanceavet.fr</a>.</p>
+                    <p>Nous serons ravis d'échanger avec vous et de vous rencontrer.</p>
+                    <a href="mailto:rh@sanceavet.fr" class="btn btn-primary">Envoyer ma candidature</a>
+                </div>
+                <div class="recrutement-image fade-in">
+                    <img src="assets/img/recrutement.png" alt="Rejoignez l'équipe de la clinique vétérinaire Sancéa Vet à Saint-Julien-les-Villas" width="1536" height="1024" loading="lazy">
+                </div>
+            </div>
+        </div>
+    </section>
 
     <!-- Contact -->
     <section class="contact" id="contact">
@@ -465,7 +484,7 @@
 
     <script src="assets/js/forms-status.js?v=20260719b"></script>
     <script src="assets/js/contact.js?v=20260719b"></script>
-    <script src="assets/js/main.js?v=20260719c"></script>    
+    <script src="assets/js/main.js?v=20260720"></script>    
     <script src="assets/js/blog.js?v=20260719b"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">

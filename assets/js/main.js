@@ -144,7 +144,7 @@
                 role: "Médecine ophtalmologique",
                 image: "assets/img/alexis-racine-veterinaire.jpg",
                 tags: ["Médecine Générale", "Ophtalmologie", "Chirurgie oculaire"],
-                bio: "Le Dr. Alexis Racine a pour domaine spécifique d'intérêt l'ophtalmologie vétérinaire. Titulaire d'un DE d'Ophtalmologie, il traite les pathologies oculaires des petits animaux, de la cataracte aux ulcères cornéens, en passant par les glaucomes et les blessures traumatiques de l'œil.",
+                bio: "Le Dr Alexis Racine exerce une activité dédiée à l'ophtalmologie vétérinaire. Titulaire d'un Diplôme d'École (DE) d'Ophtalmologie, il assure le diagnostic et le traitement des maladies oculaires des petits animaux, en médecine comme en chirurgie. Son activité couvre notamment les ulcères cornéens, les glaucomes, les anomalies palpébrales, les affections de la surface oculaire et les traumatismes de l'œil.",
                 diplomas: [
                     { year: "2017", name: "DE d'Ophtalmologie" },
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
