@@ -4772,54 +4772,116 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       // ── Synchronisation Google Calendar (OAuth + API) ──────────
       const [syncState, setSyncState] = useState('idle'); // idle|loading|auth|sync|done|warn|error
       const [syncMsg,   setSyncMsg]   = useState('');
+      const [syncMode,  setSyncMode]  = useState('perVet'); // perVet : chacun son agenda | team : agenda commun
       const [sendInvites, setSendInvites] = useState(true);
       const [inclAstr,    setInclAstr]    = useState(true);
       const busy = syncState==='loading'||syncState==='auth'||syncState==='sync';
       const vetsSansEmail = vets.filter(v=>!v.email||!v.email.includes('@'));
 
-      const buildMonthEvents = () => {
-        const vetsById=Object.fromEntries(vets.map(v=>[v.id,v]));
-        const fmtT=h=>{const hh=Math.floor(h),mn=Math.round((h-hh)*60);return `${String(hh).padStart(2,'0')}:${String(mn).padStart(2,'0')}:00`;};
-        const addDays=(dateKey,n)=>{const[y,m2,d2]=dateKey.split('-').map(Number);const dt=new Date(y,m2-1,d2+n);return dk(dt.getFullYear(),dt.getMonth(),dt.getDate());};
-        const priv={private:{sanceavetSync:'1'}};
-        const events=[];
+      const _fmtT=h=>{const hh=Math.floor(h),mn=Math.round((h-hh)*60);return `${String(hh).padStart(2,'0')}:${String(mn).padStart(2,'0')}:00`;};
+      const _addDays=(dateKey,n)=>{const[y,m2,d2]=dateKey.split('-').map(Number);const dt=new Date(y,m2-1,d2+n);return dk(dt.getFullYear(),dt.getMonth(),dt.getDate());};
+      const SYNC_PRIV={private:{sanceavetSync:'1'}};
+
+      // Liste brute des affectations du mois (créneaux + astreintes)
+      const collectAssignments=()=>{
+        const items=[];
         Object.keys(planning).filter(k=>k.startsWith(monthPrefix)).sort().forEach(dateKey=>{
           const dp=planning[dateKey]; if(!dp) return;
           ['matin','aprem'].forEach(slot=>{
             toSlotArr(dp[slot]).forEach(subSlot=>{
               if(!subSlot||!subSlot.vets||!subSlot.vets.length) return;
-              const names=subSlot.vets.map(id=>vetsById[id]?.name||id).join(', ');
               const t=HORAIRE_TIMES[subSlot.horaire]||(slot==='matin'?{start:8.5,end:12}:{start:13.5,end:19});
-              events.push({
-                summary:(slot==='matin'?'🌅 Matin ':'🌇 Après-midi ')+(HORAIRES[subSlot.horaire]?.short||'')+' – '+names,
-                start:{dateTime:`${dateKey}T${fmtT(t.start)}`,timeZone:'Europe/Paris'},
-                end:{dateTime:`${dateKey}T${fmtT(t.end)}`,timeZone:'Europe/Paris'},
-                attendees:subSlot.vets.map(id=>vetsById[id]?.email).filter(e=>e&&e.includes('@')).map(email=>({email})),
-                extendedProperties:priv,
-                description:'Planning Sancéa Vet — synchronisé automatiquement depuis l\'outil de gestion.',
-              });
+              items.push({kind:'slot',dateKey,slot,horaire:subSlot.horaire,vetIds:subSlot.vets,start:t.start,end:t.end,nextDay:false});
             });
           });
         });
         if(inclAstr){
           Object.keys(astreintes||{}).filter(k=>k.startsWith(monthPrefix)).sort().forEach(dateKey=>{
             const a=astreintes[dateKey]||{};
-            const mkEv=(vid,label,startH,endH,nextDay)=>{
-              const v=vetsById[vid]; if(!v) return;
-              events.push({
-                summary:`📞 Astreinte ${label} – ${v.name}`,
-                start:{dateTime:`${dateKey}T${fmtT(startH)}`,timeZone:'Europe/Paris'},
-                end:{dateTime:`${nextDay?addDays(dateKey,1):dateKey}T${fmtT(endH)}`,timeZone:'Europe/Paris'},
-                attendees:(v.email&&v.email.includes('@'))?[{email:v.email}]:[],
-                extendedProperties:priv,
-                description:'Astreinte Sancéa Vet — synchronisée automatiquement depuis l\'outil de gestion.',
-              });
-            };
-            if(a.midi) mkEv(a.midi,'midi',12,14,false);
-            if(a.soir) mkEv(a.soir,'soir',19,8.5,true);
+            if(a.midi) items.push({kind:'astr',dateKey,label:'midi',vetIds:[a.midi],start:12,end:14,nextDay:false});
+            if(a.soir) items.push({kind:'astr',dateKey,label:'soir',vetIds:[a.soir],start:19,end:8.5,nextDay:true});
           });
         }
-        return events;
+        return items;
+      };
+
+      const itemTimes=it=>({
+        start:{dateTime:`${it.dateKey}T${_fmtT(it.start)}`,timeZone:'Europe/Paris'},
+        end:{dateTime:`${it.nextDay?_addDays(it.dateKey,1):it.dateKey}T${_fmtT(it.end)}`,timeZone:'Europe/Paris'},
+      });
+
+      // Mode « agenda commun » : un événement par créneau, tous les vétos invités
+      const buildTeamEvents=()=>{
+        const vetsById=Object.fromEntries(vets.map(v=>[v.id,v]));
+        return collectAssignments().map(it=>{
+          const names=it.vetIds.map(id=>vetsById[id]?.name||id).join(', ');
+          const summary=it.kind==='astr'
+            ? `📞 Astreinte ${it.label} – ${names}`
+            : (it.slot==='matin'?'🌅 Matin ':'🌇 Après-midi ')+(HORAIRES[it.horaire]?.short||'')+' – '+names;
+          return {
+            summary, ...itemTimes(it),
+            attendees:it.vetIds.map(id=>vetsById[id]?.email).filter(e=>e&&e.includes('@')).map(email=>({email})),
+            extendedProperties:SYNC_PRIV,
+            description:'Planning Sancéa Vet — synchronisé automatiquement depuis l\'outil de gestion.',
+          };
+        });
+      };
+
+      // Mode « chacun le sien » : événements individuels écrits dans l'agenda de chaque véto
+      const buildPerVetEvents=()=>{
+        const vetsById=Object.fromEntries(vets.map(v=>[v.id,v]));
+        const byVet={};
+        collectAssignments().forEach(it=>{
+          it.vetIds.forEach(vid=>{
+            const v=vetsById[vid]; if(!v||!v.email||!v.email.includes('@')) return;
+            const others=it.vetIds.filter(id=>id!==vid).map(id=>vetsById[id]?.name||id);
+            const summary=it.kind==='astr'
+              ? `📞 Astreinte ${it.label} · Sancéa Vet`
+              : (it.slot==='matin'?'🌅 Matin':'🌇 Après-midi')+' · Sancéa Vet';
+            (byVet[vid]=byVet[vid]||[]).push({
+              summary, ...itemTimes(it),
+              extendedProperties:SYNC_PRIV,
+              description:(others.length?`Avec : ${others.join(', ')}\n`:'')+'Planning Sancéa Vet — synchronisé automatiquement.',
+            });
+          });
+        });
+        return byVet;
+      };
+
+      // Supprime les événements créés par une synchro précédente sur un agenda donné
+      const purgeCalendar=async(calendarId)=>{
+        const mm=String(month+1).padStart(2,'0');
+        const nY=month===11?year+1:year, nM=month===11?0:month+1;
+        const timeMin=`${year}-${mm}-01T00:00:00Z`;
+        const timeMax=`${nY}-${String(nM+1).padStart(2,'0')}-03T00:00:00Z`;
+        const oldIds=[]; let pageToken;
+        do {
+          const res=await window.gapi.client.calendar.events.list({
+            calendarId, privateExtendedProperty:'sanceavetSync=1',
+            timeMin, timeMax, maxResults:2500, pageToken,
+          });
+          (res.result.items||[]).forEach(ev=>oldIds.push(ev.id));
+          pageToken=res.result.nextPageToken;
+        } while(pageToken);
+        for(let i=0;i<oldIds.length;i++){
+          try { await window.gapi.client.calendar.events.delete({calendarId, eventId:oldIds[i], sendUpdates:'none'}); }
+          catch(e){ /* événement déjà supprimé côté Google */ }
+          await sleep(60);
+        }
+        return oldIds.length;
+      };
+
+      const insertEvents=async(calendarId,events,sendUpdates,onProgress)=>{
+        let done=0, failed=0;
+        for(const ev of events){
+          if(onProgress) onProgress(done+failed+1,events.length);
+          try {
+            await window.gapi.client.calendar.events.insert({calendarId, sendUpdates, resource:ev});
+            done++;
+          } catch(e){ failed++; console.error('Insertion échouée', e); }
+          await sleep(120);
+        }
+        return {done,failed};
       };
 
       const runSync = async () => {
@@ -4840,50 +4902,55 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             } catch(e){ reject(e); }
           });
           window.gapi.client.setToken({access_token: tokenResp.access_token});
-          const calendarId=(calId||'primary').trim()||'primary';
+          setSyncState('sync');
 
-          const events=buildMonthEvents();
-          if(!events.length){ setSyncState('error'); setSyncMsg('❌ Aucun événement à synchroniser pour '+MOIS[month]+' '+year+'.'); return; }
-
-          // Purge des événements créés par une synchro précédente (re-synchro sans doublons)
-          setSyncState('sync'); setSyncMsg('Recherche des anciens événements Sancéa Vet…');
-          const mm=String(month+1).padStart(2,'0');
-          const nY=month===11?year+1:year, nM=month===11?0:month+1;
-          const timeMin=`${year}-${mm}-01T00:00:00Z`;
-          const timeMax=`${nY}-${String(nM+1).padStart(2,'0')}-03T00:00:00Z`;
-          const oldIds=[]; let pageToken;
-          do {
-            const res=await window.gapi.client.calendar.events.list({
-              calendarId, privateExtendedProperty:'sanceavetSync=1',
-              timeMin, timeMax, maxResults:2500, pageToken,
-            });
-            (res.result.items||[]).forEach(ev=>oldIds.push(ev.id));
-            pageToken=res.result.nextPageToken;
-          } while(pageToken);
-          for(let i=0;i<oldIds.length;i++){
-            setSyncMsg(`Remplacement des anciens événements… ${i+1}/${oldIds.length}`);
-            try { await window.gapi.client.calendar.events.delete({calendarId, eventId:oldIds[i], sendUpdates:'none'}); }
-            catch(e){ /* événement déjà supprimé côté Google */ }
-            await sleep(60);
-          }
-
-          let done=0, failed=0;
-          for(const ev of events){
-            setSyncMsg(`Création des événements… ${done+failed+1}/${events.length}`);
-            try {
-              await window.gapi.client.calendar.events.insert({
-                calendarId, sendUpdates: sendInvites?'all':'none', resource: ev,
-              });
-              done++;
-            } catch(e){ failed++; console.error('Insertion échouée', e); }
-            await sleep(120);
-          }
-          if(failed){
-            setSyncState('warn');
-            setSyncMsg(`⚠ Synchronisation partielle : ${done} événement(s) créé(s), ${failed} échec(s) — voir la console.`);
+          if(syncMode==='perVet'){
+            // ── Chacun son agenda : écrit directement dans l'agenda de chaque véto
+            const byVet=buildPerVetEvents();
+            const vetIds=Object.keys(byVet);
+            if(!vetIds.length){
+              setSyncState('error');
+              setSyncMsg('❌ Aucun événement à synchroniser pour '+MOIS[month]+' '+year+' — vérifiez le planning et les emails des vétos (onglet Équipe).');
+              return;
+            }
+            const results=[]; let anyFail=false;
+            for(const vid of vetIds){
+              const v=vets.find(x=>x.id===vid);
+              const events=byVet[vid];
+              try {
+                setSyncMsg(`${v.name} : remplacement des anciens événements…`);
+                const purged=await purgeCalendar(v.email);
+                const {done,failed}=await insertEvents(v.email,events,'none',
+                  (i,n)=>setSyncMsg(`${v.name} : création des événements ${i}/${n}…`));
+                if(failed){ anyFail=true; results.push(`⚠ ${v.name} : ${done}/${events.length} événement(s) créé(s)`); }
+                else results.push(`✓ ${v.name} : ${done} événement(s)`+(purged?` (${purged} remplacé(s))`:''));
+              } catch(e){
+                anyFail=true;
+                console.error('Agenda inaccessible pour', v.email, e);
+                results.push(`✖ ${v.name} (${v.email}) : agenda inaccessible — le véto doit partager son agenda avec le compte connecté (droit « Apporter des modifications aux événements »)`);
+              }
+            }
+            setSyncState(anyFail?'warn':'done');
+            setSyncMsg((anyFail
+              ? '⚠ Synchronisation terminée avec des avertissements :'
+              : '✓ Synchronisation terminée — chaque véto ne voit que ses propres créneaux :')
+              +'\n'+results.join('\n'));
           } else {
-            setSyncState('done');
-            setSyncMsg(`✓ ${done} événement(s) synchronisé(s) sur Google Calendar`+(oldIds.length?` (${oldIds.length} ancien(s) remplacé(s))`:'')+`. Chaque véto invité retrouve le planning dans son agenda.`);
+            // ── Agenda commun : un événement par créneau, vétos invités
+            const calendarId=(calId||'primary').trim()||'primary';
+            const events=buildTeamEvents();
+            if(!events.length){ setSyncState('error'); setSyncMsg('❌ Aucun événement à synchroniser pour '+MOIS[month]+' '+year+'.'); return; }
+            setSyncMsg('Remplacement des anciens événements Sancéa Vet…');
+            const purged=await purgeCalendar(calendarId);
+            const {done,failed}=await insertEvents(calendarId,events,sendInvites?'all':'none',
+              (i,n)=>setSyncMsg(`Création des événements… ${i}/${n}`));
+            if(failed){
+              setSyncState('warn');
+              setSyncMsg(`⚠ Synchronisation partielle : ${done} événement(s) créé(s), ${failed} échec(s) — voir la console.`);
+            } else {
+              setSyncState('done');
+              setSyncMsg(`✓ ${done} événement(s) synchronisé(s) sur Google Calendar`+(purged?` (${purged} ancien(s) remplacé(s))`:'')+`. Chaque véto invité retrouve le planning dans son agenda.`);
+            }
           }
         } catch(e){
           console.error(e);
@@ -4952,32 +5019,57 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           <div className="g-card" style={{marginBottom:20,border:'1.5px solid #a5b4fc'}}>
             <h3 style={{fontSize:15,fontWeight:600,marginBottom:6,color:'#1f2937'}}>🔗 Synchronisation Google Calendar des vétos</h3>
             <p style={{fontSize:13,color:'#6b7280',marginBottom:14,lineHeight:1.6}}>
-              Publie le planning de <strong>{MOIS[month]} {year}</strong> dans l'agenda Google choisi et <strong>invite chaque vétérinaire par son email</strong> :
-              les créneaux apparaissent automatiquement dans leur agenda Google personnel.
+              Publie le planning de <strong>{MOIS[month]} {year}</strong> dans Google Calendar.
               Une nouvelle synchronisation remplace les événements créés précédemment (pas de doublons).
             </p>
+            <div style={{marginBottom:14}}>
+              <span className="g-label">Mode de synchronisation</span>
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:6,fontSize:13,color:'#374151'}}>
+                <label style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',lineHeight:1.5}}>
+                  <input type="radio" name="syncMode" checked={syncMode==='perVet'} onChange={()=>setSyncMode('perVet')} disabled={busy} style={{marginTop:2}}/>
+                  <span><strong>Agenda individuel — chacun le sien</strong> (recommandé) : chaque véto ne reçoit <strong>que ses propres créneaux</strong> directement dans son agenda Google, avec un titre court (ex. « 🌅 Matin · Sancéa Vet »). Les collègues du créneau sont indiqués dans la description.</span>
+                </label>
+                <label style={{display:'flex',alignItems:'flex-start',gap:8,cursor:'pointer',lineHeight:1.5}}>
+                  <input type="radio" name="syncMode" checked={syncMode==='team'} onChange={()=>setSyncMode('team')} disabled={busy} style={{marginTop:2}}/>
+                  <span><strong>Agenda commun</strong> : un événement par créneau dans l'agenda choisi ci-dessous, avec tous les vétos du créneau invités.</span>
+                </label>
+              </div>
+            </div>
             <div style={{display:'flex',gap:10,marginBottom:14,flexWrap:'wrap'}}>
               <div style={{flex:'2 1 280px'}}>
                 <span className="g-label">Client ID OAuth</span>
                 <input value={gclientId} onChange={e=>setGclientId(e.target.value)}
                   placeholder="xxxx.apps.googleusercontent.com" className="g-input" style={{width:'100%'}}/>
               </div>
-              <div style={{flex:'1 1 140px'}}>
-                <span className="g-label">ID agenda</span>
-                <input value={calId} onChange={e=>setCalId(e.target.value)} placeholder="primary"
-                  className="g-input" style={{width:'100%'}}/>
-              </div>
+              {syncMode==='team'&&(
+                <div style={{flex:'1 1 140px'}}>
+                  <span className="g-label">ID agenda commun</span>
+                  <input value={calId} onChange={e=>setCalId(e.target.value)} placeholder="primary"
+                    className="g-input" style={{width:'100%'}}/>
+                </div>
+              )}
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:14,fontSize:13,color:'#374151'}}>
-              <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
-                <input type="checkbox" checked={sendInvites} onChange={e=>setSendInvites(e.target.checked)} disabled={busy}/>
-                Envoyer les invitations par email aux vétérinaires (notification Google Calendar)
-              </label>
+              {syncMode==='team'&&(
+                <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
+                  <input type="checkbox" checked={sendInvites} onChange={e=>setSendInvites(e.target.checked)} disabled={busy}/>
+                  Envoyer les invitations par email aux vétérinaires (notification Google Calendar)
+                </label>
+              )}
               <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
                 <input type="checkbox" checked={inclAstr} onChange={e=>setInclAstr(e.target.checked)} disabled={busy}/>
                 Inclure les astreintes (midi 12h–14h, soir 19h–8h30 le lendemain)
               </label>
             </div>
+            {syncMode==='perVet'&&(
+              <div style={{background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:8,
+                padding:'10px 14px',fontSize:13,color:'#075985',marginBottom:12,lineHeight:1.6}}>
+                ℹ️ Les événements sont écrits <strong>directement dans l'agenda Google de chaque véto</strong> (identifié par son email de l'onglet Équipe).
+                Prérequis : chaque véto doit partager son agenda avec le compte Google que vous connectez —
+                Google Agenda → Paramètres → « Partager avec des personnes » → droit <strong>« Apporter des modifications aux événements »</strong>.
+                Avec Google Workspace, l'administrateur peut activer ce partage pour tout le domaine.
+              </div>
+            )}
             {vetsSansEmail.length>0&&(
               <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,
                 padding:'10px 14px',fontSize:13,color:'#92400e',marginBottom:12}}>
@@ -4995,7 +5087,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               {busy?'⏳ Synchronisation en cours…':'🔗 Connecter & Synchroniser '+MOIS[month]+' '+year}
             </button>
             {syncMsg&&(
-              <div style={{marginTop:12,padding:'10px 14px',borderRadius:8,fontSize:13,lineHeight:1.6,
+              <div style={{marginTop:12,padding:'10px 14px',borderRadius:8,fontSize:13,lineHeight:1.6,whiteSpace:'pre-line',
                 background:syncState==='done'?'#f0fdf4':syncState==='error'?'#fef2f2':syncState==='warn'?'#fffbeb':'#f0f9ff',
                 border:'1px solid '+(syncState==='done'?'#bbf7d0':syncState==='error'?'#fecaca':syncState==='warn'?'#fde68a':'#bae6fd'),
                 color:syncState==='done'?'#166534':syncState==='error'?'#b91c1c':syncState==='warn'?'#92400e':'#075985'}}>
@@ -5025,8 +5117,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
           <div className="sync-info">
             <strong style={{display:'block',marginBottom:6,color:'#0d9488'}}>💡 Fonctionnement</strong>
-            Chaque jour génère <strong>2 événements</strong> dans Google Calendar (matin + après-midi) avec l'horaire exact.
-            Chaque véto assigné reçoit une invitation dans son agenda Google Workspace.
+            <strong>Agenda individuel</strong> : chaque véto ne voit que ses propres créneaux et astreintes dans son agenda,
+            avec des titres courts et lisibles ; ses collègues du créneau sont listés dans la description de l'événement.<br/>
+            <strong>Agenda commun</strong> : chaque créneau (matin / après-midi) crée un événement d'équipe avec tous les vétos invités.
           </div>
         </div>
       );
