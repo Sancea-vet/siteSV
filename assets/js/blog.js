@@ -11,6 +11,11 @@ function slugify(str) {
         .replace(/^-+|-+$/g, '');
 }
 
+// Slug effectif : celui saisi dans l'admin, sinon dérivé du titre.
+function postSlug(post) {
+    return slugify(post.slug || post.title);
+}
+
 function markdownToHtml(markdown) {
     if (!markdown) return '';
     const html = markdown
@@ -62,7 +67,7 @@ function openArticleModal(post) {
 
         // Boutons de partage — on pointe vers l'URL propre servie avec les
         // balises Open Graph (functions/blog/[slug].js) pour de belles vignettes.
-        const articleUrl = encodeURIComponent(`${location.origin}/blog/${slugify(post.slug)}`);
+        const articleUrl = encodeURIComponent(`${location.origin}/blog/${postSlug(post)}`);
         const articleTitle = encodeURIComponent(post.title);
         document.getElementById('articleModalShare').innerHTML = `
             <div class="share-bar">
@@ -142,7 +147,7 @@ function createPostCard(post) {
     const hasModal = !!document.getElementById('articleModal');
     const cardAction = hasModal
         ? `onclick="openArticleModal(${JSON.stringify(post).replace(/"/g, '&quot;')})" style="cursor:pointer;"`
-        : `onclick="location.href='/blog/${slugify(post.slug)}'" style="cursor:pointer;"`;
+        : `onclick="location.href='/blog/${postSlug(post)}'" style="cursor:pointer;"`;
 
     return `
         <article class="blog-card fade-in" ${cardAction}>
@@ -258,7 +263,8 @@ async function loadBlog() {
         const slug = slugFromUrl();
 
         if (slug) {
-            const post = posts.find(item => item.slug === slug || slugify(item.slug) === slugify(slug));
+            const target = slugify(slug);
+            const post = posts.find(item => postSlug(item) === target);
             if (post) renderArticle(post);
             else renderNotFound();
         } else {

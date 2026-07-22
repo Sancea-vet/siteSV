@@ -29,6 +29,11 @@ function slugify(str) {
     .replace(/^-+|-+$/g, '');
 }
 
+// Slug effectif de l'article : celui saisi dans l'admin, sinon dérivé du titre.
+function postSlug(post) {
+  return slugify(post.slug || post.title);
+}
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;')
@@ -60,9 +65,8 @@ export async function onRequest(context) {
     /* on retombera sur le gabarit brut */
   }
 
-  const post = posts.find(
-    (p) => slugify(p.slug) === slugify(wanted) || p.slug === wanted
-  );
+  const target = slugify(wanted);
+  const post = posts.find((p) => postSlug(p) === target);
 
   // Récupère le gabarit statique
   const template = await env.ASSETS.fetch(new URL('/blog.html', requestOrigin));
@@ -76,7 +80,7 @@ export async function onRequest(context) {
     });
   }
 
-  const canonical = `${SITE}/blog/${slugify(post.slug)}`;
+  const canonical = `${SITE}/blog/${postSlug(post)}`;
   // encodeURI : les images uploadées peuvent contenir des espaces/accents,
   // que Facebook n'accepte pas dans une URL og:image.
   const image = encodeURI(absoluteUrl(post.image, SITE) || SITE + DEFAULT_IMAGE);

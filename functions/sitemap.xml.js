@@ -63,7 +63,8 @@ export async function onRequest(context) {
   }
 
   for (const post of posts) {
-    const slug = slugify(post.slug);
+    // Slug saisi dans l'admin, sinon dérivé du titre.
+    const slug = slugify(post.slug || post.title);
     if (!slug) continue;
     const lastmod = /^\d{4}-\d{2}-\d{2}/.test(post.date || '') ? post.date.slice(0, 10) : '';
     entries.push(
