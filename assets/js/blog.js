@@ -1,5 +1,16 @@
 const blogDataUrl = '/data/posts.json';
 
+// Doit rester identique à slugify() côté serveur (functions/blog/[slug].js)
+function slugify(str) {
+    return String(str || '')
+        .normalize('NFD')
+        .replace(/[̀-ͯ]/g, '')
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '');
+}
+
 function markdownToHtml(markdown) {
     if (!markdown) return '';
     const html = markdown
@@ -29,8 +40,11 @@ function formatDate(dateString) {
 }
 
 function slugFromUrl() {
-    const params = new URLSearchParams(window.location.search);
-    return params.get('slug');
+    // Nouvelle URL propre : /blog/<slug>
+    const match = window.location.pathname.match(/^\/blog\/(.+?)\/?$/);
+    if (match) return decodeURIComponent(match[1]);
+    // Rétro-compatibilité : ancien format /blog.html?slug=<slug>
+    return new URLSearchParams(window.location.search).get('slug');
 }
 
 // Ouvre le popup article (sur index.html) ou affiche inline (sur blog.html)
@@ -46,8 +60,9 @@ function openArticleModal(post) {
         document.getElementById('articleModalBody').innerHTML = markdownToHtml(post.body);
         document.getElementById('articleModalReadTime').textContent = post.timeToRead ? `Durée de lecture : ${post.timeToRead}` : '';
 
-        // Boutons de partage
-        const articleUrl = encodeURIComponent(`${location.origin}/blog.html?slug=${post.slug}`);
+        // Boutons de partage — on pointe vers l'URL propre servie avec les
+        // balises Open Graph (functions/blog/[slug].js) pour de belles vignettes.
+        const articleUrl = encodeURIComponent(`${location.origin}/blog/${slugify(post.slug)}`);
         const articleTitle = encodeURIComponent(post.title);
         document.getElementById('articleModalShare').innerHTML = `
             <div class="share-bar">
@@ -127,7 +142,7 @@ function createPostCard(post) {
     const hasModal = !!document.getElementById('articleModal');
     const cardAction = hasModal
         ? `onclick="openArticleModal(${JSON.stringify(post).replace(/"/g, '&quot;')})" style="cursor:pointer;"`
-        : `onclick="location.href='blog.html?slug=${post.slug}'" style="cursor:pointer;"`;
+        : `onclick="location.href='/blog/${slugify(post.slug)}'" style="cursor:pointer;"`;
 
     return `
         <article class="blog-card fade-in" ${cardAction}>
@@ -224,14 +239,14 @@ function renderArticle(post) {
                 <p class="article-note">Durée de lecture : ${post.timeToRead || 'N/A'}</p>
             </div>
         </article>
-        <p><a href="blog.html">← Retour aux articles</a></p>
+        <p><a href="/blog.html">← Retour aux articles</a></p>
     `;
 }
 
 function renderNotFound() {
     const container = document.getElementById('articleContainer') || document.getElementById('blogGrid');
     if (!container) return;
-    container.innerHTML = `<div class="blog-error"><h2>Article introuvable</h2><p>Le contenu demandé n'existe pas encore. Retournez à la page <a href="blog.html">des articles</a>.</p></div>`;
+    container.innerHTML = `<div class="blog-error"><h2>Article introuvable</h2><p>Le contenu demandé n'existe pas encore. Retournez à la page <a href="/blog.html">des articles</a>.</p></div>`;
 }
 
 async function loadBlog() {
@@ -243,7 +258,7 @@ async function loadBlog() {
         const slug = slugFromUrl();
 
         if (slug) {
-            const post = posts.find(item => item.slug === slug);
+            const post = posts.find(item => item.slug === slug || slugify(item.slug) === slugify(slug));
             if (post) renderArticle(post);
             else renderNotFound();
         } else {
