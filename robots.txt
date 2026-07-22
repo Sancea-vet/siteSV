@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+# Zones privées / non pertinentes pour l'indexation
+Disallow: /admin/
+Disallow: /gestion.html
+Disallow: /api/
+Disallow: /confirmation-referencement.html
+
+Sitemap: https://sanceavet.fr/sitemap.xml

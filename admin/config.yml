@@ -32,7 +32,12 @@ collections:
             summary: "{{fields.title}}"
             fields:
               - { label: "Titre", name: "title", widget: "string" }
-              - { label: "Slug", name: "slug", widget: "string" }
+              - label: "Slug (adresse web)"
+                name: "slug"
+                widget: "string"
+                required: false
+                hint: "Facultatif : laissez vide pour générer l'adresse automatiquement à partir du titre. Pour un meilleur référencement, vous pouvez saisir votre propre slug (minuscules, chiffres et tirets, sans accents ni espaces). Ex : conseils-vaccination-chat"
+                pattern: ['^$|^[a-z0-9]+(?:-[a-z0-9]+)*$', 'Uniquement des minuscules, chiffres et tirets (ex : mon-article), ou laissez vide']
               - { label: "Date", name: "date", widget: "datetime", format: "YYYY-MM-DD" }
               - { label: "Catégorie", name: "category", widget: "string" }
               - { label: "Image", name: "image", widget: "image", required: false }
