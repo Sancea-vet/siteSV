@@ -102,11 +102,15 @@
         };
 
         // Team members data
+        // NB : le texte des bios existe aussi, en HTML indexable, sur les fiches
+        // equipe/<slug>.html (la popup étant invisible pour les moteurs de
+        // recherche). Toute modification ici doit être reportée sur la fiche.
         const teamData = {
             adrien: {
                 name: "Dr. Adrien Le Leuch",
                 role: "Médecine interne & cardiologie",
                 image: "assets/img/adrien-le-leuch-veterinaire.jpg",
+                profileUrl: "equipe/adrien-le-leuch.html",
                 tags: ["Médecine Générale", "Médecine interne", "Cardiologie", "CEAV Médecine interne"],
                 bio: "Le Dr. Adrien Le Leuch a pour domaines de compétence la médecine interne et la cardiologie vétérinaire. Diplômé du CEAV de médecine interne, il accompagne les cas complexes avec une expertise diagnostic poussée et un suivi médical précis. Sa pratique se concentre sur les maladies cardiaques, métaboliques et inflammatoires des petits animaux.",
                 diplomas: [
@@ -119,6 +123,7 @@
                 name: "Dr. Maxime Bousses",
                 role: "Médecine et chirurgie orthopédiques",
                 image: "assets/img/maxime-bousses-veterinaire.jpg",
+                profileUrl: "equipe/maxime-bousses.html",
                 tags: ["Médecine Générale", "Chirurgie", "Orthopédie", "Traumatologie"],
                 bio: "Le Dr. Maxime Bousses a pour domaines de compétence les interventions chirurgicales et les traumatismes ostéo-articulaires. Diplômé du CES Traumatologie ostéo-articulaire et orthopédie animale, il maîtrise les techniques chirurgicales les plus avancées pour restaurer la mobilité et le confort des animaux.",
                 diplomas: [
@@ -131,6 +136,7 @@
                 name: "Dr. Lucie Lengellé",
                 role: "Médecine, échographie et comportement",
                 image: "assets/img/lucie-lengelle-veterinaire.jpg",
+                profileUrl: "equipe/lucie-lengelle.html",
                 tags: ["Médecine Générale", "CEAV de Médecine du comportement des animaux domestiques"],
                 bio: "Le Dr Lucie Lengellé a un attrait particulier pour la médecine, la prise en charge des animaux hospitalisés et l'échographie abdominale. Titulaire du CEAV Médecine du comportement des animaux domestiques, elle aide les propriétaires à comprendre et modifier les comportements indésirables grâce à des protocoles personnalisés et respectueux du bien-être animal.",
                 diplomas: [
@@ -143,6 +149,7 @@
                 name: "Dr. Alexis Racine",
                 role: "Médecine ophtalmologique",
                 image: "assets/img/alexis-racine-veterinaire.jpg",
+                profileUrl: "equipe/alexis-racine.html",
                 tags: ["Médecine Générale", "Ophtalmologie", "Chirurgie oculaire"],
                 bio: "Le Dr Alexis Racine exerce une activité dédiée à l'ophtalmologie vétérinaire. Titulaire d'un Diplôme d'École (DE) d'Ophtalmologie, il assure le diagnostic et le traitement des maladies oculaires des petits animaux, en médecine comme en chirurgie. Son activité couvre notamment les ulcères cornéens, les glaucomes, les anomalies palpébrales, les affections de la surface oculaire et les traumatismes de l'œil.",
                 diplomas: [
@@ -168,6 +175,17 @@
             // Tags
             const tagsContainer = document.getElementById('modalTags');
             tagsContainer.innerHTML = data.tags.map(tag => `<span class="tag">${tag}</span>`).join('');
+
+            // Lien vers la fiche complète (masqué si la fiche n'existe pas)
+            const profileLink = document.getElementById('modalProfileLink');
+            if (profileLink) {
+                if (data.profileUrl) {
+                    profileLink.href = data.profileUrl;
+                    profileLink.style.display = '';
+                } else {
+                    profileLink.style.display = 'none';
+                }
+            }
 
             // Diplomas
             const diplomasContainer = document.getElementById('modalDiplomas');

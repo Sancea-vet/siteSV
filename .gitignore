@@ -2,3 +2,6 @@
 
 # macOS
 .DS_Store
+
+# Config locale des serveurs de preview
+/.claude/

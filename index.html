@@ -24,15 +24,20 @@
       "@graph": [
         {
           "@type": "VeterinaryCare",
+          "@id": "https://sanceavet.fr/#clinic",
           "name": "Sancéa Vet",
+          "alternateName": "Clinique vétérinaire Sancéa Vet",
           "image": "https://sanceavet.fr/assets/img/veterinaire-chaton-consultation.jpg",
+          "logo": "https://sanceavet.fr/assets/img/logo.png",
           "url": "https://sanceavet.fr/",
-          "telephone": "03 10 94 09 66",
+          "telephone": "+33310940966",
+          "email": "contact@sanceavet.fr",
           "address": {
             "@type": "PostalAddress",
             "streetAddress": "75 Boulevard de Dijon",
             "addressLocality": "Saint-Julien-les-Villas",
             "postalCode": "10800",
+            "addressRegion": "Aube",
             "addressCountry": "FR"
           },
           "geo": {
@@ -40,22 +45,97 @@
             "latitude": 48.2972,
             "longitude": 4.0765
           },
+          "hasMap": "https://www.google.com/maps/place/75+Boulevard+de+Dijon,+10800+Saint-Julien-les-Villas",
+          "areaServed": [
+            { "@type": "City", "name": "Troyes" },
+            { "@type": "City", "name": "Saint-Julien-les-Villas" },
+            { "@type": "City", "name": "Sainte-Savine" },
+            { "@type": "City", "name": "La Chapelle-Saint-Luc" },
+            { "@type": "City", "name": "Saint-André-les-Vergers" },
+            { "@type": "AdministrativeArea", "name": "Aube" }
+          ],
           "openingHoursSpecification": [
             { "@type": "OpeningHoursSpecification", "dayOfWeek": ["Monday","Tuesday","Wednesday","Thursday","Friday"], "opens": "08:30", "closes": "19:00" },
             { "@type": "OpeningHoursSpecification", "dayOfWeek": "Saturday", "opens": "08:30", "closes": "12:00" },
             { "@type": "OpeningHoursSpecification", "dayOfWeek": "Saturday", "opens": "13:00", "closes": "16:00" }
           ],
           "priceRange": "€€",
+          "currenciesAccepted": "EUR",
+          "isAccessibleForFree": false,
+          "publicAccess": true,
+          "employee": [
+            { "@id": "https://sanceavet.fr/equipe/adrien-le-leuch#person" },
+            { "@id": "https://sanceavet.fr/equipe/maxime-bousses#person" },
+            { "@id": "https://sanceavet.fr/equipe/lucie-lengelle#person" },
+            { "@id": "https://sanceavet.fr/equipe/alexis-racine#person" }
+          ],
+          "availableService": [
+            { "@type": "MedicalProcedure", "name": "Consultation vétérinaire de médecine générale et de médecine interne" },
+            { "@type": "MedicalProcedure", "name": "Vaccination des chiens, chats et NAC" },
+            { "@type": "MedicalProcedure", "name": "Chirurgie des tissus mous et chirurgie orthopédique" },
+            { "@type": "MedicalProcedure", "name": "Dentisterie vétérinaire" },
+            { "@type": "MedicalProcedure", "name": "Imagerie médicale : radiographie numérique et échographie" },
+            { "@type": "MedicalProcedure", "name": "Consultation d'ophtalmologie vétérinaire" },
+            { "@type": "MedicalProcedure", "name": "Consultation de comportement animal" },
+            { "@type": "MedicalProcedure", "name": "Urgences vétérinaires et astreinte" }
+          ],
           "sameAs": [
             "https://www.instagram.com/sanceavet",
             "https://www.facebook.com/profile.php?id=61591715904752"
           ]
         },
         {
+          "@type": "Person",
+          "@id": "https://sanceavet.fr/equipe/adrien-le-leuch#person",
+          "name": "Dr Adrien Le Leuch",
+          "honorificPrefix": "Dr",
+          "jobTitle": "Vétérinaire – médecine interne et cardiologie",
+          "url": "https://sanceavet.fr/equipe/adrien-le-leuch",
+          "image": "https://sanceavet.fr/assets/img/adrien-le-leuch-veterinaire.jpg",
+          "knowsAbout": ["Médecine interne vétérinaire", "Cardiologie vétérinaire"],
+          "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://sanceavet.fr/equipe/maxime-bousses#person",
+          "name": "Dr Maxime Bousses",
+          "honorificPrefix": "Dr",
+          "jobTitle": "Vétérinaire – chirurgie et orthopédie",
+          "url": "https://sanceavet.fr/equipe/maxime-bousses",
+          "image": "https://sanceavet.fr/assets/img/maxime-bousses-veterinaire.jpg",
+          "knowsAbout": ["Chirurgie vétérinaire", "Orthopédie animale", "Traumatologie ostéo-articulaire"],
+          "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://sanceavet.fr/equipe/lucie-lengelle#person",
+          "name": "Dr Lucie Lengellé",
+          "honorificPrefix": "Dr",
+          "jobTitle": "Vétérinaire – médecine, échographie et comportement",
+          "url": "https://sanceavet.fr/equipe/lucie-lengelle",
+          "image": "https://sanceavet.fr/assets/img/lucie-lengelle-veterinaire.jpg",
+          "knowsAbout": ["Médecine du comportement", "Échographie abdominale"],
+          "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://sanceavet.fr/equipe/alexis-racine#person",
+          "name": "Dr Alexis Racine",
+          "honorificPrefix": "Dr",
+          "jobTitle": "Vétérinaire – ophtalmologie",
+          "url": "https://sanceavet.fr/equipe/alexis-racine",
+          "image": "https://sanceavet.fr/assets/img/alexis-racine-veterinaire.jpg",
+          "knowsAbout": ["Ophtalmologie vétérinaire", "Chirurgie oculaire"],
+          "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
+        },
+        {
           "@type": "WebPage",
+          "@id": "https://sanceavet.fr/#webpage",
           "url": "https://sanceavet.fr/",
           "name": "Sancéa Vet - Clinique vétérinaire à Troyes",
           "description": "Sancéa Vet est une clinique vétérinaire à Saint-Julien-les-Villas proposant des soins complets pour chiens, chats et NAC.",
+          "inLanguage": "fr-FR",
+          "about": { "@id": "https://sanceavet.fr/#clinic" },
           "breadcrumb": { "@type": "BreadcrumbList", "itemListElement": [ { "@type": "ListItem", "position": 1, "name": "Accueil", "item": "https://sanceavet.fr/" } ] }
         }
       ]
@@ -64,7 +144,7 @@
     
     <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260720c">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260726">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
@@ -101,6 +181,7 @@
     <section class="hero" id="accueil">
         <div class="hero-container">
             <div class="hero-content fade-in">
+                <span class="hero-kicker">Clinique vétérinaire à Troyes – Saint-Julien-les-Villas</span>
                 <h1>Des soins d'excellence pour vos compagnons</h1>
                 <p>Notre clinique vétérinaire Sancéa Vet de 550 m², située à Saint-Julien-les-Villas, allie expertise médico-chirurgicale et engagement passionné pour proposer à vos animaux (chiens, chats, furets, lapins et rongeurs) les meilleurs soins possibles dans un environnement pensé pour leur confort et leur bien-être.</p>
                 <div class="btn-group">
@@ -236,6 +317,21 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Liens vers les fiches détaillées.
+                 Les cartes ci-dessus ouvrent une popup en JavaScript : les moteurs
+                 de recherche ne la déclenchent pas et n'en voient donc pas le contenu.
+                 Ces liens HTML leur permettent de découvrir et d'indexer chaque
+                 fiche praticien (recherches du type « Dr Nom vétérinaire »). -->
+            <div class="team-links fade-in">
+                <span class="team-links-label">Fiches détaillées de nos vétérinaires :</span>
+                <ul class="team-links-list">
+                    <li><a href="equipe/adrien-le-leuch.html">Dr Adrien Le Leuch</a></li>
+                    <li><a href="equipe/maxime-bousses.html">Dr Maxime Bousses</a></li>
+                    <li><a href="equipe/lucie-lengelle.html">Dr Lucie Lengellé</a></li>
+                    <li><a href="equipe/alexis-racine.html">Dr Alexis Racine</a></li>
+                </ul>
+            </div>
         </div>
     </section>
 
@@ -249,6 +345,7 @@
                     <h3 id="modalName"></h3>
                     <p class="role" id="modalRole"></p>
                     <div class="specialty-tags" id="modalTags"></div>
+                    <a class="modal-profile-link" id="modalProfileLink" href="#">Voir la fiche complète →</a>
                 </div>
             </div>
             <div class="modal-body">
@@ -449,6 +546,16 @@
                 <p>Engagement, compassion et excellence médicale.</p>
             </div>
             <div class="footer-links">
+                <h4>Clinique vétérinaire</h4>
+                <address class="footer-nap">
+                    75 Boulevard de Dijon<br>
+                    10800 Saint-Julien-les-Villas<br>
+                    <span class="footer-nap-city">Agglomération de Troyes (Aube)</span><br>
+                    <a href="tel:+33310940966">03 10 94 09 66</a><br>
+                    <a href="mailto:contact@sanceavet.fr">contact@sanceavet.fr</a>
+                </address>
+            </div>
+            <div class="footer-links">
                 <h4>Liens rapides</h4>
                 <ul>
                     <li><a href="#services">Nos services</a></li>
@@ -485,7 +592,7 @@
 
     <script src="assets/js/forms-status.js?v=20260719b"></script>
     <script src="assets/js/contact.js?v=20260719b"></script>
-    <script src="assets/js/main.js?v=20260720"></script>    
+    <script src="assets/js/main.js?v=20260726"></script>
     <script src="assets/js/blog.js?v=20260720"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">
