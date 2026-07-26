@@ -87,7 +87,7 @@
                 title: "Urgences & astreinte",
                 icon: "🚑",
                 subtitle: "Service d'astreinte en dehors des horaires d'ouverture",
-                description: "En dehors des horaires d'ouverture, la continuité des soins est assurée par un vétérinaire d'astreinte joignable par téléphone, pour nos patients comme pour les animaux sans vétérinaire traitant. Il s'agit d'une astreinte téléphonique : aucun vétérinaire n'est présent en permanence sur place, il est donc indispensable d'appeler avant tout déplacement. En cas d'urgence, contactez en priorité votre vétérinaire traitant, qui vous orientera vers la solution de prise en charge la plus adaptée. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
+                description: "En dehors des horaires d'ouverture, la continuité des soins est assurée par un vétérinaire d'astreinte joignable par téléphone, pour nos patients comme pour les animaux sans vétérinaire traitant. Il s'agit d'une astreinte: aucun vétérinaire n'est présent en permanence sur place, il est donc indispensable d'appeler avant tout déplacement. En cas d'urgence, contactez en priorité votre vétérinaire traitant, qui vous orientera vers la solution de prise en charge la plus adaptée. La clinique vétérinaire Sancéa Vet est équipée pour la prise en charge de tous types d'urgences : traumatismes, détresse respiratoire, intoxications, convulsions, ...",
                 includes: [
                     "Tri et évaluation vitale immédiate",
                     "Oxygénothérapie et réanimation cardio-pulmonaire",
