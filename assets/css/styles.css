@@ -140,6 +140,17 @@
             z-index: 1;
         }
 
+        /* Sur-titre du hero : ancre la ville dans le texte visible de la page */
+        .hero-kicker {
+            display: inline-block;
+            font-size: 0.85rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.85);
+            margin-bottom: 1rem;
+        }
+
         .hero-content h1 {
             font-size: clamp(2.5rem, 5vw, 4rem);
             color: white;
@@ -424,6 +435,58 @@
             color: var(--text-light);
             font-size: 0.8rem;
             font-style: italic;
+        }
+
+        /* Liens vers les fiches praticien : indispensables en HTML (les cartes
+           ouvrent une popup en JS, que les moteurs de recherche ne suivent pas). */
+        .team-links {
+            margin-top: 2.5rem;
+            text-align: center;
+            font-size: 0.95rem;
+            color: var(--text-light);
+        }
+
+        .team-links-label {
+            display: block;
+            margin-bottom: 0.75rem;
+        }
+
+        .team-links-list {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0.5rem 0.75rem;
+            list-style: none;
+        }
+
+        .team-links-list a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.4rem 0.9rem;
+            border: 1px solid var(--primary-light);
+            border-radius: 20px;
+            background: white;
+            transition: all 0.3s;
+        }
+
+        .team-links-list a:hover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        /* Lien vers la fiche complète, ajouté dans la popup équipe */
+        .modal-profile-link {
+            display: inline-block;
+            margin-top: 0.5rem;
+            color: var(--primary);
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        .modal-profile-link:hover {
+            text-decoration: underline;
         }
 
         /* Team Modal */
@@ -1024,6 +1087,28 @@
 
         .footer-links a:hover {
             color: var(--primary-light);
+        }
+
+        /* Bloc adresse du footer (signal local : NAP répété sur chaque page) */
+        .footer-nap {
+            font-style: normal;
+            color: #9ca3af;
+            line-height: 1.9;
+        }
+
+        .footer-nap a {
+            color: #9ca3af;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        .footer-nap a:hover {
+            color: var(--primary-light);
+        }
+
+        .footer-nap-city {
+            color: var(--primary-light);
+            font-size: 0.9rem;
         }
 
         .footer-bottom {

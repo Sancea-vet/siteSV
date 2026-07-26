@@ -1,0 +1,294 @@
+/* ==========================================================================
+   Fiches vétérinaires (/equipe/<slug>)
+   --------------------------------------------------------------------------
+   Feuille dédiée aux pages praticien. Volontairement séparée de styles.css
+   pour ne rien modifier de l'apparence des pages existantes.
+   Réutilise les composants globaux : .tag, .diploma-list, .btn, footer, nav.
+   ========================================================================== */
+
+/* --- Hero compact ------------------------------------------------------- */
+.vet-hero {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+    position: relative;
+    overflow: hidden;
+}
+
+.vet-hero::before {
+    content: '';
+    position: absolute;
+    top: -60%;
+    right: -15%;
+    width: 600px;
+    height: 600px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 50%;
+}
+
+.vet-hero-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 8rem 2rem 3rem;
+    position: relative;
+    z-index: 1;
+    color: white;
+}
+
+.vet-kicker {
+    display: inline-block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.85);
+    margin-bottom: 0.75rem;
+}
+
+.vet-hero-container h1 {
+    font-size: clamp(2rem, 4.5vw, 3rem);
+    margin-bottom: 0.5rem;
+    line-height: 1.2;
+}
+
+.vet-role {
+    font-size: 1.15rem;
+    color: rgba(255, 255, 255, 0.9);
+    max-width: 640px;
+}
+
+/* --- Fil d'Ariane ------------------------------------------------------- */
+/* styles.css stylise le sélecteur d'élément `nav` en position: fixed (barre de
+   navigation). Le fil d'Ariane est aussi un <nav> : on neutralise donc cet
+   héritage, sinon il se superpose au logo en haut de page. */
+.breadcrumb {
+    position: static;
+    width: auto;
+    background: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    z-index: auto;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 1rem 2rem 0;
+    font-size: 0.85rem;
+    color: var(--text-light);
+}
+
+.breadcrumb ol {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.breadcrumb a {
+    color: var(--primary);
+    text-decoration: none;
+}
+
+.breadcrumb a:hover {
+    text-decoration: underline;
+}
+
+.breadcrumb li + li::before {
+    content: '›';
+    margin-right: 0.4rem;
+    color: var(--text-light);
+}
+
+/* --- Corps de page ----------------------------------------------------- */
+.vet-main {
+    padding: 2rem 2rem 5rem;
+}
+
+.vet-layout {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 3rem;
+    align-items: start;
+}
+
+.vet-aside {
+    position: sticky;
+    top: 100px;
+}
+
+.vet-photo {
+    background: white;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: var(--shadow-lg);
+}
+
+.vet-photo img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: cover;
+    object-position: top center;
+}
+
+.vet-aside-card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 1.25rem;
+    margin-top: 1.5rem;
+}
+
+.vet-aside-card h2 {
+    font-size: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--text);
+}
+
+.vet-aside-card p {
+    font-size: 0.9rem;
+    color: var(--text-light);
+    line-height: 1.7;
+    margin-bottom: 1rem;
+}
+
+.vet-aside-card .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 0.8rem 1.25rem;
+    font-size: 0.95rem;
+}
+
+/* .btn-primary / .btn-secondary de styles.css sont conçus pour le fond sombre
+   du hero (fond blanc / texte blanc). Sur la carte blanche, il faut les
+   inverser — sinon le bouton secondaire est blanc sur blanc, donc invisible. */
+.vet-aside-card .btn-primary {
+    background: var(--primary);
+    color: white;
+    box-shadow: var(--shadow);
+}
+
+.vet-aside-card .btn-primary:hover {
+    background: var(--primary-dark);
+}
+
+.vet-aside-card .btn-secondary {
+    border: 2px solid var(--primary);
+    color: var(--primary);
+    background: transparent;
+}
+
+.vet-aside-card .btn-secondary:hover {
+    background: var(--primary);
+    color: white;
+}
+
+.vet-content section {
+    margin-bottom: 2.5rem;
+}
+
+.vet-content h2 {
+    font-size: 1.4rem;
+    margin-bottom: 1rem;
+    color: var(--text);
+}
+
+.vet-content p {
+    font-size: 1.05rem;
+    line-height: 1.85;
+    color: var(--text);
+    margin-bottom: 1rem;
+}
+
+.vet-content p:last-child {
+    margin-bottom: 0;
+}
+
+.vet-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 2.5rem;
+}
+
+.vet-card-block {
+    background: white;
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    padding: 1.75rem;
+}
+
+/* --- Autres praticiens ------------------------------------------------- */
+.vet-others {
+    background: var(--bg-alt);
+    padding: 3.5rem 2rem;
+}
+
+.vet-others-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+}
+
+.vet-others h2 {
+    font-size: 1.4rem;
+    margin-bottom: 1.5rem;
+    text-align: center;
+}
+
+.vet-others-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+}
+
+.vet-others-grid a {
+    display: block;
+    background: white;
+    border-radius: 16px;
+    padding: 1.25rem;
+    box-shadow: var(--shadow);
+    text-decoration: none;
+    transition: all 0.3s;
+}
+
+.vet-others-grid a:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+}
+
+.vet-others-grid strong {
+    display: block;
+    color: var(--text);
+    font-size: 1rem;
+    margin-bottom: 0.2rem;
+}
+
+.vet-others-grid span {
+    color: var(--primary);
+    font-size: 0.85rem;
+}
+
+/* --- Responsive -------------------------------------------------------- */
+@media (max-width: 900px) {
+    .vet-layout {
+        grid-template-columns: 1fr;
+        gap: 2rem;
+    }
+
+    .vet-aside {
+        position: static;
+        max-width: 380px;
+        margin: 0 auto;
+    }
+
+    .vet-hero-container {
+        padding: 7rem 1.5rem 2.5rem;
+    }
+
+    .vet-main {
+        padding: 1.5rem 1.5rem 4rem;
+    }
+
+    .breadcrumb {
+        padding: 1rem 1.5rem 0;
+    }
+}
