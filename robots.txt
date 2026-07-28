@@ -3,8 +3,8 @@ Allow: /
 
 # Zones privées / non pertinentes pour l'indexation
 Disallow: /admin/
-Disallow: /gestion.html
+Disallow: /gestion
 Disallow: /api/
-Disallow: /confirmation-referencement.html
+Disallow: /confirmation-referencement
 
 Sitemap: https://sanceavet.fr/sitemap.xml

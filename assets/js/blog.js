@@ -199,7 +199,7 @@ function renderBlogGrid(posts) {
             const btn = document.createElement('div');
             btn.id = 'voirTousBtn';
             btn.style.cssText = 'text-align:center; margin-top:2rem;';
-            btn.innerHTML = `<a href="blog.html" class="btn btn-secondary">Voir tous les articles →</a>`;
+            btn.innerHTML = `<a href="/blog" class="btn btn-secondary">Voir tous les articles →</a>`;
             blogGrid.parentNode.insertBefore(btn, blogGrid.nextSibling);
         }
     }
@@ -244,14 +244,14 @@ function renderArticle(post) {
                 <p class="article-note">Durée de lecture : ${post.timeToRead || 'N/A'}</p>
             </div>
         </article>
-        <p><a href="/blog.html">← Retour aux articles</a></p>
+        <p><a href="/blog">← Retour aux articles</a></p>
     `;
 }
 
 function renderNotFound() {
     const container = document.getElementById('articleContainer') || document.getElementById('blogGrid');
     if (!container) return;
-    container.innerHTML = `<div class="blog-error"><h2>Article introuvable</h2><p>Le contenu demandé n'existe pas encore. Retournez à la page <a href="/blog.html">des articles</a>.</p></div>`;
+    container.innerHTML = `<div class="blog-error"><h2>Article introuvable</h2><p>Le contenu demandé n'existe pas encore. Retournez à la page <a href="/blog">des articles</a>.</p></div>`;
 }
 
 async function loadBlog() {

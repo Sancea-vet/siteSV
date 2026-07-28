@@ -14,12 +14,11 @@ const STATIC_PAGES = [
   { loc: '/equipe/maxime-bousses', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/lucie-lengelle', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/alexis-racine', priority: '0.8', changefreq: 'monthly' },
-  { loc: '/blog.html', priority: '0.8', changefreq: 'weekly' },
-  { loc: '/referencement-veterinaire.html', priority: '0.7', changefreq: 'monthly' },
-  { loc: '/actes.html', priority: '0.5', changefreq: 'monthly' },
-  { loc: '/mentions-legales.html', priority: '0.3', changefreq: 'yearly' },
-  { loc: '/politique-confidentialite.html', priority: '0.3', changefreq: 'yearly' },
-  { loc: '/conditions-generales-fonctionnement.html', priority: '0.3', changefreq: 'yearly' },
+  { loc: '/blog', priority: '0.8', changefreq: 'weekly' },
+  { loc: '/referencement-veterinaire', priority: '0.7', changefreq: 'monthly' },
+  { loc: '/mentions-legales', priority: '0.3', changefreq: 'yearly' },
+  { loc: '/politique-confidentialite', priority: '0.3', changefreq: 'yearly' },
+  { loc: '/conditions-generales-fonctionnement', priority: '0.3', changefreq: 'yearly' },
 ];
 
 function slugify(str) {
