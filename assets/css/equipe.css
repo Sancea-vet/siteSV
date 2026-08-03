@@ -158,29 +158,8 @@
     font-size: 0.95rem;
 }
 
-/* .btn-primary / .btn-secondary de styles.css sont conçus pour le fond sombre
-   du hero (fond blanc / texte blanc). Sur la carte blanche, il faut les
-   inverser — sinon le bouton secondaire est blanc sur blanc, donc invisible. */
-.vet-aside-card .btn-primary {
-    background: var(--primary);
-    color: white;
-    box-shadow: var(--shadow);
-}
-
-.vet-aside-card .btn-primary:hover {
-    background: var(--primary-dark);
-}
-
-.vet-aside-card .btn-secondary {
-    border: 2px solid var(--primary);
-    color: var(--primary);
-    background: transparent;
-}
-
-.vet-aside-card .btn-secondary:hover {
-    background: var(--primary);
-    color: white;
-}
+/* La carte est blanche : les boutons portent .btn-on-light (styles.css) pour
+   inverser les couleurs du hero, sinon le secondaire est blanc sur blanc. */
 
 .vet-content section {
     margin-bottom: 2.5rem;

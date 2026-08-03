@@ -207,6 +207,31 @@
             color: var(--primary);
         }
 
+        /* Variante fond clair : .btn-primary / .btn-secondary ci-dessus sont dessinés
+           pour le dégradé sombre du hero (fond blanc / texte blanc). Sur var(--bg) ou
+           var(--bg-alt) le secondaire devient blanc sur blanc, donc invisible.
+           À ajouter en plus de .btn-primary / .btn-secondary : class="btn btn-secondary btn-on-light". */
+        .btn-on-light.btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: var(--shadow);
+        }
+
+        .btn-on-light.btn-primary:hover {
+            background: var(--primary-dark);
+        }
+
+        .btn-on-light.btn-secondary {
+            border: 2px solid var(--primary);
+            color: var(--primary);
+            background: transparent;
+        }
+
+        .btn-on-light.btn-secondary:hover {
+            background: var(--primary);
+            color: white;
+        }
+
         .hero-image {
             position: relative;
         }

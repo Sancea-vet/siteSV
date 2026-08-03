@@ -11,7 +11,7 @@
     
     <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260719c">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260803">
     <style>
         /* Styles spécifiques à la page de confirmation */
         .main-content { flex-grow: 1; display: flex; align-items: center; justify-content: center; padding: 8rem 2rem 4rem; background: linear-gradient(135deg, var(--bg-alt) 0%, white 50%, var(--primary-light) 100%); }
@@ -27,10 +27,7 @@
         .details-box li .icon { color: var(--primary); font-size: 1.1rem; flex-shrink: 0; }
         .btn-group { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
         .btn { padding: 1rem 2rem; border-radius: 50px; text-decoration: none; font-weight: 600; transition: all 0.3s; display: inline-flex; align-items: center; gap: 0.5rem; border: none; cursor: pointer; font-family: inherit; font-size: 1rem; }
-        .btn-primary { background: var(--primary); color: white; box-shadow: var(--shadow); }
-        .btn-primary:hover { background: var(--primary-dark); transform: translateY(-2px); box-shadow: var(--shadow-lg); }
-        .btn-secondary { background: white; color: var(--primary); border: 2px solid var(--primary); }
-        .btn-secondary:hover { background: var(--primary-light); transform: translateY(-2px); }
+        /* Fond clair : voir .btn-on-light dans styles.css */
         @media (max-width: 768px) { .confirmation-card { padding: 2.5rem 1.5rem; } .confirmation-card h1 { font-size: 1.5rem; } .btn-group { flex-direction: column; } .btn { width: 100%; justify-content: center; } }
     </style>
     <meta name="description" content="Votre dossier de référence a bien été envoyé à Sancéa Vet. Nous revenons vers vous rapidement pour organiser la suite du suivi et du rendez-vous vétérinaire.">
@@ -112,8 +109,8 @@
             </div>
 
             <div class="btn-group">
-                <a href="/referencement-veterinaire" class="btn btn-secondary">📋 Référer un nouveau patient</a>
-                <a href="/" class="btn btn-primary">🏠 Retour à l'accueil</a>
+                <a href="/referencement-veterinaire" class="btn btn-secondary btn-on-light">📋 Référer un nouveau patient</a>
+                <a href="/" class="btn btn-primary btn-on-light">🏠 Retour à l'accueil</a>
             </div>
         </div>
     </main>
