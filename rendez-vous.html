@@ -102,11 +102,6 @@
         .rdv-callout ul { margin: 0.5rem 0 0 1.25rem; }
         .rdv-callout a { color: var(--primary-dark); font-weight: 600; }
         .rdv-actions { max-width: 900px; margin: 3rem auto 0; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: center; }
-        /* Les boutons du site sont dessinés pour un fond sombre : on les réadapte au fond clair */
-        .rdv-actions .btn-primary { background: var(--primary); color: #fff; }
-        .rdv-actions .btn-primary:hover { background: var(--primary-dark); }
-        .rdv-actions .btn-secondary { border-color: var(--primary); color: var(--primary); }
-        .rdv-actions .btn-secondary:hover { background: var(--primary); color: #fff; }
         @media (max-width: 768px) { .hero-container { padding: 7rem 1.5rem 2rem; } .main-content { padding: 3rem 1.25rem; } }
     </style>
 </head>
@@ -200,8 +195,8 @@
         </div>
 
         <div class="rdv-actions">
-            <a href="/" class="btn btn-secondary">Retour à l'accueil</a>
-            <a href="/#contact" class="btn btn-primary">Nous écrire</a>
+            <a href="/" class="btn btn-secondary btn-on-light">Retour à l'accueil</a>
+            <a href="/#contact" class="btn btn-primary btn-on-light">Nous écrire</a>
         </div>
     </main>
 
