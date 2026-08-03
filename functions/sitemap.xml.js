@@ -10,6 +10,7 @@ const SITE = 'https://sanceavet.fr';
 
 const STATIC_PAGES = [
   { loc: '/', priority: '1.0', changefreq: 'weekly' },
+  { loc: '/rendez-vous', priority: '0.9', changefreq: 'monthly' },
   { loc: '/equipe/adrien-le-leuch', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/maxime-bousses', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/lucie-lengelle', priority: '0.8', changefreq: 'monthly' },

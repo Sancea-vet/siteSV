@@ -1041,6 +1041,76 @@
             color: var(--primary);
         }
 
+        /* Placeholder d'un contenu de hauteur variable (widget de rendez-vous) */
+        .embed-consent.embed-consent--auto {
+            height: auto;
+            min-height: 320px;
+        }
+
+        /* Prise de rendez-vous en ligne */
+        .rdv {
+            padding: 6rem 2rem;
+        }
+
+        .rdv-widget {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .rdv-widget .embed-host {
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .rdv-widget .embed-host iframe {
+            display: block;
+        }
+
+        .rdv-note {
+            max-width: 900px;
+            margin: 1.5rem auto 0;
+            text-align: center;
+            font-size: 0.95rem;
+            color: var(--text-light);
+        }
+
+        .rdv-note a {
+            color: var(--primary);
+            font-weight: 600;
+            text-decoration: none;
+        }
+
+        /* Bouton « Prendre RDV » de la barre de navigation */
+        .nav-links a.nav-cta {
+            padding: 0.5rem 1.1rem;
+            color: #fff;
+            background: var(--primary);
+            border-radius: 50px;
+            transition: background 0.3s, transform 0.3s;
+        }
+
+        .nav-links a.nav-cta:hover {
+            color: #fff;
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+
+        .nav-links a.nav-cta::after {
+            display: none;
+        }
+
+        /* La 9e entrée de menu ne tient plus au-delà de 1200px de contenu */
+        @media (min-width: 769px) and (max-width: 1200px) {
+            .nav-links {
+                gap: 1.1rem;
+            }
+
+            .nav-links a {
+                font-size: 0.92rem;
+            }
+        }
+
         /* Footer */
         footer {
             background: var(--text);

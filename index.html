@@ -83,6 +83,20 @@
             { "@type": "MedicalProcedure", "name": "Consultation de comportement animal" },
             { "@type": "MedicalProcedure", "name": "Urgences vétérinaires et astreinte" }
           ],
+          "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Prendre rendez-vous en ligne",
+            "target": {
+              "@type": "EntryPoint",
+              "urlTemplate": "https://sanceavet.fr/rendez-vous",
+              "inLanguage": "fr-FR",
+              "actionPlatform": [
+                "http://schema.org/DesktopWebPlatform",
+                "http://schema.org/MobileWebPlatform"
+              ]
+            },
+            "result": { "@type": "Reservation", "name": "Rendez-vous vétérinaire" }
+          },
           "sameAs": [
             "https://www.instagram.com/sanceavet",
             "https://www.facebook.com/profile.php?id=61591715904752"
@@ -148,7 +162,7 @@
     
     <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260726">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260803">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
@@ -177,6 +191,7 @@
                 <li><a href="/referencement-veterinaire">Référer un patient</a></li>
                 <li><a href="#recrutement">Recrutement</a></li>
                 <li><a href="#contact">Contact</a></li>
+                <li><a href="/rendez-vous" class="nav-cta">Prendre RDV</a></li>
             </ul>
         </div>
     </nav>
@@ -189,7 +204,7 @@
                 <h1>Des soins d'excellence pour vos compagnons</h1>
                 <p>Notre clinique vétérinaire Sancéa Vet de 550 m², située à Saint-Julien-les-Villas, allie expertise médico-chirurgicale et engagement passionné pour proposer à vos animaux (chiens, chats, furets, lapins et rongeurs) les meilleurs soins possibles dans un environnement pensé pour leur confort et leur bien-être.</p>
                 <div class="btn-group">
-                    <a href="#contact" class="btn btn-primary">Prendre rendez-vous</a>
+                    <a href="#rendez-vous" class="btn btn-primary">Prendre rendez-vous en ligne</a>
                     <a href="#services" class="btn btn-secondary">Nos services</a>
                 </div>
             </div>
@@ -449,6 +464,43 @@
         </div>
     </section>
 
+    <!-- Prise de rendez-vous en ligne -->
+    <section class="rdv" id="rendez-vous">
+        <div class="container">
+            <div class="section-header fade-in">
+                <h2>Prendre rendez-vous en ligne</h2>
+                <p>Consultations générales comme spécialisées : choisissez directement le créneau qui vous convient, 24h/24, sans attendre au téléphone</p>
+            </div>
+
+            <!-- Widget MonRendezVousVeto : chargé uniquement au clic (voir main.js) -->
+            <div class="rdv-widget fade-in">
+                <div class="embed-consent embed-consent--auto"
+                     data-embed-script="https://widget.monrendezvousveto.fr"
+                     data-embed-target="vetowidget"
+                     data-embed-attr-widget-clinic="8624"
+                     data-embed-attr-primary-color="0d3056"
+                     data-embed-attr-secondary-color="f5f3f3">
+                    <svg class="embed-consent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <rect x="3" y="5" width="18" height="16" rx="2"/>
+                        <path d="M3 10h18M8 3v4M16 3v4"/>
+                        <path d="M9 15l2 2 4-4"/>
+                    </svg>
+                    <p class="embed-consent-address">Module de prise de rendez-vous</p>
+                    <button type="button" class="embed-consent-btn">Afficher le module de rendez-vous</button>
+                    <p class="embed-consent-note">
+                        L'affichage du module charge un contenu fourni par MonRendezVousVeto et ses prestataires (mesure d'audience Hotjar, paiement Stripe), et transmet votre adresse IP à ces services. Voir notre <a href="/politique-confidentialite">politique de confidentialité</a>.
+                        <a href="https://www.monrendezvousveto.fr/clinique/saint-julien-les-villas/sancea-vet" target="_blank" rel="noopener">Ouvrir la prise de rendez-vous dans un nouvel onglet</a>
+                    </p>
+                </div>
+            </div>
+
+            <p class="rdv-note fade-in">
+                Urgence, animal hospitalisé ou motif inhabituel ? Appelez-nous plutôt au
+                <a href="tel:+33310940966">03 10 94 09 66</a> pour que nous adaptions le créneau.
+            </p>
+        </div>
+    </section>
+
     <!-- Contact -->
     <section class="contact" id="contact">
         <div class="container">
@@ -565,7 +617,8 @@
                     <li><a href="#services">Nos services</a></li>
                     <li><a href="#equipe">L'équipe</a></li>
                     <li><a href="#actualites">Actualités</a></li>
-                    <li><a href="#contact">Prendre RDV</a></li>
+                    <li><a href="/rendez-vous">Prendre RDV en ligne</a></li>
+                    <li><a href="#contact">Nous contacter</a></li>
                 </ul>
             </div>
             <div class="footer-links">
@@ -596,7 +649,7 @@
 
     <script src="assets/js/forms-status.js?v=20260719b"></script>
     <script src="assets/js/contact.js?v=20260719b"></script>
-    <script src="assets/js/main.js?v=20260726"></script>
+    <script src="assets/js/main.js?v=20260803"></script>
     <script src="assets/js/blog.js?v=20260720"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">

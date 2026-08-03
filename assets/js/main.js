@@ -311,18 +311,55 @@
         // Chargement au clic des contenus tiers (RGPD)
         // Aucun appel au service externe tant que le visiteur n'a pas cliqué :
         // le clic vaut consentement pour ce service, ce qui évite un bandeau global.
-        // Usage : <div class="embed-consent" data-embed-src="..." data-embed-title="...">
+        // Usage iframe : <div class="embed-consent" data-embed-src="..." data-embed-title="...">
+        // Usage script : <div class="embed-consent" data-embed-script="..." data-embed-target="vetowidget"
+        //                     data-embed-attr-widget-clinic="8624">
+        function loadIframeEmbed(placeholder) {
+            const iframe = document.createElement('iframe');
+            iframe.src = placeholder.dataset.embedSrc;
+            iframe.title = placeholder.dataset.embedTitle || 'Contenu externe';
+            iframe.loading = 'lazy';
+            iframe.referrerPolicy = 'no-referrer-when-downgrade';
+            iframe.allowFullscreen = true;
+            placeholder.replaceWith(iframe);
+        }
+
+        function loadScriptEmbed(placeholder) {
+            const script = document.createElement('script');
+            // data-embed-attr-widget-clinic="8624" devient data-widget-clinic="8624" sur le script tiers
+            const prefix = 'data-embed-attr-';
+            Array.from(placeholder.attributes).forEach(attr => {
+                if (attr.name.startsWith(prefix)) {
+                    script.setAttribute('data-' + attr.name.slice(prefix.length), attr.value);
+                }
+            });
+            script.src = placeholder.dataset.embedScript;
+
+            // Le script tiers cherche son conteneur (ex. <div id="vetowidget">) : il doit exister avant.
+            const host = document.createElement('div');
+            host.id = placeholder.dataset.embedTarget || '';
+            host.className = 'embed-host';
+            placeholder.replaceWith(host);
+
+            // Le widget MonRendezVousVeto ne se dessine qu'au load de la page ; comme il est
+            // injecté après coup, on rejoue l'événement une fois le script chargé.
+            script.addEventListener('load', () => {
+                if (document.readyState === 'complete') {
+                    window.dispatchEvent(new Event('load'));
+                }
+            });
+            document.body.appendChild(script);
+        }
+
         document.querySelectorAll('.embed-consent').forEach(placeholder => {
             const button = placeholder.querySelector('.embed-consent-btn');
             if (!button) return;
 
             button.addEventListener('click', () => {
-                const iframe = document.createElement('iframe');
-                iframe.src = placeholder.dataset.embedSrc;
-                iframe.title = placeholder.dataset.embedTitle || 'Contenu externe';
-                iframe.loading = 'lazy';
-                iframe.referrerPolicy = 'no-referrer-when-downgrade';
-                iframe.allowFullscreen = true;
-                placeholder.replaceWith(iframe);
-            });
+                if (placeholder.dataset.embedScript) {
+                    loadScriptEmbed(placeholder);
+                } else if (placeholder.dataset.embedSrc) {
+                    loadIframeEmbed(placeholder);
+                }
+            }, { once: true });
         });
