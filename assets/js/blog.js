@@ -199,7 +199,7 @@ function renderBlogGrid(posts) {
             const btn = document.createElement('div');
             btn.id = 'voirTousBtn';
             btn.style.cssText = 'text-align:center; margin-top:2rem;';
-            btn.innerHTML = `<a href="/blog" class="btn btn-secondary">Voir tous les articles →</a>`;
+            btn.innerHTML = `<a href="/blog" class="btn btn-secondary btn-on-light">Voir tous les articles →</a>`;
             blogGrid.parentNode.insertBefore(btn, blogGrid.nextSibling);
         }
     }
