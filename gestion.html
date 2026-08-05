@@ -425,6 +425,16 @@
       return `${hrs}h${mins.toString().padStart(2,'0')}`;
     };
 
+    // Clé de mois "YYYY-MM" (utilisée pour la validation par mois)
+    const mkey = (y,m) => `${y}-${String(m+1).padStart(2,'0')}`;
+
+    // Migration : ancien format `validated: bool` (global) → objet {"YYYY-MM":true}
+    const normalizeValidated = (raw, fallbackKey) => {
+      if (raw && typeof raw === 'object') return {...raw};
+      if (raw === true && fallbackKey) return {[fallbackKey]: true};
+      return {};
+    };
+
     function App() {
       const now = new Date();
       const [tab,   setTab]   = useState('planning');
@@ -436,7 +446,8 @@
       const [openDays,  setOpenDays]  = useState([false,true,true,true,true,true,true]);
       const [planning,  setPlanning]  = useState({});
       const [unavail,   setUnavail]   = useState({});
-      const [validated, setValidated] = useState(false);
+      // Validation stockée par mois : {"2026-08": true, ...}
+      const [validatedMap, setValidatedMap] = useState({});
       const [yearlyData,setYearlyData]= useState({});
       const [astreintes,setAstreintes]= useState({});
       const [asvs,      setAsvs]      = useState(DEFAULT_ASVS);
@@ -445,6 +456,19 @@
       const [asvUnavailRanges,setAsvUnavailRanges]=useState([]);
       const [asvPersonalRules,setAsvPersonalRules]=useState({});
       const [horaireTimes,setHoraireTimes]=useState(DEFAULT_HORAIRE_TIMES);
+
+      // ── Validation : dérivée du mois affiché ───────────────────
+      const monthKey  = mkey(year, month);
+      const validated = !!validatedMap[monthKey];
+      // Marque/démarque un mois précis comme validé (aucun effet sur les autres mois)
+      const setValidatedFor = useCallback((mKey, val) => {
+        setValidatedMap(prev => {
+          if (!!prev[mKey] === !!val) return prev;
+          const next = {...prev};
+          if (val) next[mKey] = true; else delete next[mKey];
+          return next;
+        });
+      }, []);
 
       // ── Synchronisation des globals horaires à chaque rendu ────
       syncHorairesToGlobals(horaireTimes);
@@ -505,13 +529,19 @@
           return next;
         })();
 
+        const nextValidated = (() => {
+          const next = {...validatedMap};
+          delete next[monthKey];
+          return next;
+        })();
+
         const payload = {
           vets,
           rules,
           openDays,
           planning: nextPlanning,
           unavail: nextUnavail,
-          validated: false,
+          validated: nextValidated,
           yearlyData: nextYearlyData,
           astreintes: nextAstreintes,
           nav: { year, month },
@@ -523,11 +553,11 @@
         setPlanning(nextPlanning);
         setAstreintes(nextAstreintes);
         setUnavail(nextUnavail);
-        setValidated(false);
+        setValidatedMap(nextValidated);
         setYearlyData(nextYearlyData);
         setSaveFlash(true);
         setTimeout(() => setSaveFlash(false), 1800);
-      }, [year, month, planning, astreintes, unavail, yearlyData, vets, rules, openDays, gclientId, calId]);
+      }, [year, month, monthKey, planning, astreintes, unavail, validatedMap, yearlyData, vets, rules, openDays, gclientId, calId]);
 
       // ── Chargement depuis le Worker KV au démarrage ───────────
       useEffect(()=>{
@@ -539,7 +569,11 @@
             if(d.openDays)   setOpenDays(d.openDays);
             if(d.planning)   setPlanning(d.planning);
             if(d.unavail)    setUnavail(d.unavail);
-            if(d.validated !== undefined) setValidated(d.validated);
+            if(d.validated !== undefined) {
+              // Ancien format booléen : on l'attribue au mois de navigation sauvegardé
+              const navKey = d.nav ? mkey(d.nav.year, d.nav.month) : mkey(now.getFullYear(), now.getMonth());
+              setValidatedMap(normalizeValidated(d.validated, navKey));
+            }
             if(d.yearlyData) setYearlyData(d.yearlyData);
             if(d.astreintes) setAstreintes(d.astreintes);
             if(d.asvs)       setAsvs(d.asvs);
@@ -599,18 +633,18 @@
 
       useEffect(()=>{
         if(loaded && apiReady)
-          triggerSave({vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,freepbxWebhook,loaded,apiReady});
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,freepbxWebhook,loaded,apiReady]);
+          triggerSave({vets,rules,openDays,planning,unavail,validated:validatedMap,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,freepbxWebhook,loaded,apiReady});
+      },[vets,rules,openDays,planning,unavail,validatedMap,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,year,month,gclientId,calId,freepbxWebhook,loaded,apiReady]);
 
       // ── Export / Import JSON ──────────────────────────────────
       const exportJSON = useCallback(()=>{
-        const data = {vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId};
+        const data = {vets,rules,openDays,planning,unavail,validated:validatedMap,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId};
         const blob = new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href=url; a.download=`sanceavet_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
         URL.revokeObjectURL(url);
-      },[vets,rules,openDays,planning,unavail,validated,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId]);
+      },[vets,rules,openDays,planning,unavail,validatedMap,yearlyData,astreintes,asvs,asvRules,asvPlanning,asvUnavailRanges,asvPersonalRules,horaireTimes,gclientId,calId]);
 
       const importJSON = useCallback(()=>{
         const input = document.createElement('input');
@@ -626,7 +660,7 @@
               if(d.openDays)   setOpenDays(d.openDays);
               if(d.planning)   setPlanning(d.planning);
               if(d.unavail)    setUnavail(d.unavail);
-              if(d.validated !== undefined) setValidated(d.validated);
+              if(d.validated !== undefined) setValidatedMap(normalizeValidated(d.validated, null));
               if(d.yearlyData) setYearlyData(d.yearlyData);
               if(d.astreintes) setAstreintes(d.astreintes);
               if(d.asvs)       setAsvs(d.asvs);
@@ -1153,8 +1187,8 @@
  // FIX fuite mémoire : fusionner avec les mois existants au lieu d'écraser tout le state
  setAstreintes(prev => ({...prev, ...newA}));
  setPlanning(prev => ({...prev, ...newP}));
- setValidated(false);
-},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes]);
+ setValidatedFor(mkey(year,month), false);
+},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes,setValidatedFor]);
 
 const generateAstreintes = useCallback(()=>{
  const newA = {};
@@ -2131,13 +2165,15 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           slotArr = slotArr.map(s => s.horaire===horaireId ? updater(s) : s);
           return {...prev,[datekey]:{...day,[slot]:slotArr}};
         });
-        setValidated(false);
-      },[]);
+        // Seul le mois de la journée modifiée perd sa validation
+        setValidatedFor(String(datekey).slice(0,7), false);
+      },[setValidatedFor]);
 
+      // Navigation seule : ne touche pas à la validation (elle est stockée par mois)
       const changeMonth = useCallback((delta)=>{
         let ny=year,nm=month+delta;
         if(nm<0){ny--;nm=11;}if(nm>11){ny++;nm=0;}
-        setYear(ny);setMonth(nm);setValidated(false);
+        setYear(ny);setMonth(nm);
       },[year,month]);
 
       const exportICS = useCallback(()=>{
@@ -2447,11 +2483,11 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               onChangeMonth={changeMonth} onGenerate={generateAll}
               holidays={holidays}
               onValidate={()=>{
-                setValidated(true);
-                const mkey=String(month);
+                setValidatedFor(monthKey, true);
+                const mk=String(month);
                 setYearlyData(prev=>{
                   const yr=prev[year]||{};
-                  return {...prev,[year]:{...yr,[mkey]:{planning,astreintes,label:MOIS[month]+' '+year}}};
+                  return {...prev,[year]:{...yr,[mk]:{planning,astreintes,label:MOIS[month]+' '+year}}};
                 });
               }}
               updateSubSlot={updateSubSlot} setUnavail={setUnavail}
@@ -2549,7 +2585,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       },[setEditDay]);
 
       const pfxCur = `${year}-${String(month+1).padStart(2,'0')}-`;
-      const totalU=Object.values(unavail).reduce((s,d)=>s+(d.matin||[]).length+(d.aprem||[]).length,0);
+      // Indispos du mois affiché uniquement (les autres mois restent stockés mais non listés ici)
+      const monthUnavail = useMemo(
+        ()=>Object.entries(unavail).filter(([k])=>k.startsWith(pfxCur)).sort(([a],[b])=>a.localeCompare(b)),
+        [unavail,pfxCur]
+      );
+      const totalU=monthUnavail.reduce((s,[,d])=>s+(d.matin||[]).length+(d.aprem||[]).length,0);
       const hasP=Object.keys(planning).filter(k=>k.startsWith(pfxCur)&&planning[k]).length>0;
 
       const doAdd=()=>{
@@ -2657,7 +2698,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 <button onClick={doAdd} className="btn-teal">Ajouter</button>
               </div>
               <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
-                {Object.entries(unavail).flatMap(([key,slots])=>
+                {monthUnavail.flatMap(([key,slots])=>
                   ['matin','aprem'].flatMap(slot=>(slots[slot]||[]).map(vid=>{
                     const v=vets.find(x=>x.id===vid);
                     const d=parseInt(key.split('-')[2]);
