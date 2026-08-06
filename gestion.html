@@ -435,6 +435,34 @@
       return {};
     };
 
+    // Ne garde que les entrées "YYYY-MM-DD" appartenant au mois demandé
+    const sliceMonth = (obj, prefix) => Object.fromEntries(
+      Object.entries(obj||{}).filter(([k])=>String(k).startsWith(prefix))
+    );
+
+    // Migration : les anciens snapshots stockaient TOUT le planning (tous mois
+    // confondus) sous chaque mois validé → double comptage dans les stats.
+    // On redécoupe chaque snapshot sur son propre mois.
+    const normalizeYearlyData = (raw) => {
+      if (!raw || typeof raw !== 'object') return {};
+      const out = {};
+      Object.entries(raw).forEach(([yr, months])=>{
+        if (!months || typeof months !== 'object') return;
+        const ym = {};
+        Object.entries(months).forEach(([mk, snap])=>{
+          if (!snap || typeof snap !== 'object') return;
+          const prefix = `${mkey(Number(yr), Number(mk))}-`;
+          ym[mk] = {
+            ...snap,
+            planning:   sliceMonth(snap.planning,   prefix),
+            astreintes: sliceMonth(snap.astreintes, prefix),
+          };
+        });
+        out[yr] = ym;
+      });
+      return out;
+    };
+
     function App() {
       const now = new Date();
       const [tab,   setTab]   = useState('planning');
@@ -574,7 +602,7 @@
               const navKey = d.nav ? mkey(d.nav.year, d.nav.month) : mkey(now.getFullYear(), now.getMonth());
               setValidatedMap(normalizeValidated(d.validated, navKey));
             }
-            if(d.yearlyData) setYearlyData(d.yearlyData);
+            if(d.yearlyData) setYearlyData(normalizeYearlyData(d.yearlyData));
             if(d.astreintes) setAstreintes(d.astreintes);
             if(d.asvs)       setAsvs(d.asvs);
             if(d.asvRules)   setAsvRules(d.asvRules);
@@ -661,7 +689,7 @@
               if(d.planning)   setPlanning(d.planning);
               if(d.unavail)    setUnavail(d.unavail);
               if(d.validated !== undefined) setValidatedMap(normalizeValidated(d.validated, null));
-              if(d.yearlyData) setYearlyData(d.yearlyData);
+              if(d.yearlyData) setYearlyData(normalizeYearlyData(d.yearlyData));
               if(d.astreintes) setAstreintes(d.astreintes);
               if(d.asvs)       setAsvs(d.asvs);
               if(d.asvRules)   setAsvRules(d.asvRules);
@@ -1425,7 +1453,8 @@ const generateAstreintes = useCallback(()=>{
 
  // FIX fuite mémoire : fusionner avec les mois existants au lieu d'écraser tout le state
  setAstreintes(prev => ({...prev, ...newA}));
-},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes]);
+ setValidatedFor(mkey(year,month), false);
+},[vets,rules,unavail,openDays,numDays,year,month,yearlyData,holidays,astreintes,setValidatedFor]);
 
       // ── Génération Planning ASV ────────────────────────────────
       const generateASVPlanning = useCallback(()=>{
@@ -2169,6 +2198,19 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         setValidatedFor(String(datekey).slice(0,7), false);
       },[setValidatedFor]);
 
+      // Toute modification manuelle d'astreinte invalide le mois concerné,
+      // sinon le bouton « Valider » reste grisé et les stats restent figées.
+      const updateAstreintes = useCallback((updater)=>{
+        const next = typeof updater==='function' ? updater(astreintes) : updater;
+        setAstreintes(next);
+        const touched = new Set();
+        new Set([...Object.keys(astreintes), ...Object.keys(next)]).forEach(k=>{
+          const a = astreintes[k]||{}, b = next[k]||{};
+          if((a.midi||null)!==(b.midi||null) || (a.soir||null)!==(b.soir||null)) touched.add(String(k).slice(0,7));
+        });
+        touched.forEach(m=>setValidatedFor(m, false));
+      },[astreintes,setValidatedFor]);
+
       // Navigation seule : ne touche pas à la validation (elle est stockée par mois)
       const changeMonth = useCallback((delta)=>{
         let ny=year,nm=month+delta;
@@ -2485,16 +2527,24 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               onValidate={()=>{
                 setValidatedFor(monthKey, true);
                 const mk=String(month);
+                const prefix=`${monthKey}-`;
+                // On ne fige QUE le mois validé : sinon chaque snapshot contient
+                // tout le planning et les stats additionnent N copies du même mois.
+                const snap={
+                  planning:   sliceMonth(planning,   prefix),
+                  astreintes: sliceMonth(astreintes, prefix),
+                  label: MOIS[month]+' '+year
+                };
                 setYearlyData(prev=>{
                   const yr=prev[year]||{};
-                  return {...prev,[year]:{...yr,[mk]:{planning,astreintes,label:MOIS[month]+' '+year}}};
+                  return {...prev,[year]:{...yr,[mk]:snap}};
                 });
               }}
               updateSubSlot={updateSubSlot} setUnavail={setUnavail}
               setEditDay={setEditDay}
               resolveHoraire={resolveHoraire}
               isoWeek={isoWeek} weekParity={weekParity}
-              astreintes={astreintes} setAstreintes={setAstreintes}
+              astreintes={astreintes} setAstreintes={updateAstreintes}
               onGenerateAstreintes={generateAstreintes} />
           )}
           {tab==='equipe'&&<EquipeTab vets={vets} setVets={setVets}/>}
@@ -2517,6 +2567,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             <StatsTab vets={vets} yearlyData={yearlyData} currentYear={year}
               currentMonth={month} currentPlanning={planning} validated={validated}
               setYearlyData={setYearlyData}
+              validatedMap={validatedMap}
               astreintes={astreintes}/>
           )}
           {tab==='sync'&&(
@@ -2539,7 +2590,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
               holidays={holidays}
-              astreintes={astreintes} setAstreintes={setAstreintes}
+              astreintes={astreintes} setAstreintes={updateAstreintes}
               onClose={()=>setEditDay(null)}/>,
             document.body
           )}
@@ -5171,7 +5222,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Onglet Statistiques ───────────────────────────────────
-    function StatsTab({vets,yearlyData,currentYear,currentMonth,currentPlanning,validated,setYearlyData,astreintes}){
+    function StatsTab({vets,yearlyData,currentYear,currentMonth,currentPlanning,validated,setYearlyData,validatedMap={},astreintes}){
       const [viewYear, setViewYear] = useState(currentYear);
 
       // Agrège les demi-journées par véto pour une année donnée
@@ -5355,15 +5406,21 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             <div className="g-card" style={{flex:'1 1 300px',padding:'14px 20px'}}>
               <span className="g-label">Mois validés pour {viewYear}</span>
               <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:4}}>
-                {hasMonths ? Object.entries(months).sort((a,b)=>+a[0]-+b[0]).map(([mk,{label}])=>(
-                  <span key={mk} style={{display:'inline-flex',alignItems:'center',gap:5,
-                    background:'#f0fdf4',border:'1px solid #bbf7d0',color:'#166534',
+                {hasMonths ? Object.entries(months).sort((a,b)=>+a[0]-+b[0]).map(([mk,{label}])=>{
+                  const stale = !validatedMap[mkey(viewYear, Number(mk))];
+                  return (
+                  <span key={mk}
+                    title={stale?'Ce mois a été modifié depuis sa validation — revalidez-le dans Planning pour mettre à jour les stats':undefined}
+                    style={{display:'inline-flex',alignItems:'center',gap:5,
+                    background:stale?'#fffbeb':'#f0fdf4',
+                    border:'1px solid '+(stale?'#fde68a':'#bbf7d0'),
+                    color:stale?'#92400e':'#166534',
                     borderRadius:20,padding:'3px 10px',fontSize:12,fontWeight:500}}>
-                    ✓ {label}
+                    {stale?'⚠':'✓'} {label}
                     <button onClick={()=>removeMonth(viewYear,mk)}
                       style={{background:'none',border:'none',cursor:'pointer',color:'#6b7280',fontSize:13,padding:0,lineHeight:1}}>×</button>
                   </span>
-                )) : (
+                );}) : (
                   <span style={{fontSize:12,color:'#9ca3af'}}>
                     {validated&&currentYear===viewYear
                       ? 'Le mois en cours n\'est pas encore sauvegardé — cliquez Valider dans Planning'
