@@ -5233,38 +5233,43 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           matinH:{matin_A:0,matin_B:0},
           apremH:{aprem_A:0,aprem_B:0},
           astrDays:0,
+          astrNuitsSem:0,
           astrBlocsWEJF:0,
           days:new Set()
         }]));
-        const dk_=(y,m,d)=>`${y}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         const yHols=getFrenchHolidays(parseInt(yr));
 
-        Object.values(months).forEach(({planning:p, astreintes:a})=>{
-          if(a){
-            const sortedKeys=Object.keys(a).sort();
-            sortedKeys.forEach(key=>{
-              const {midi}=a[key];
-              if(!midi||!counts[midi]) return;
-              const [ky,km,kd]=key.split('-').map(Number);
-              const dow2=new Date(ky,km-1,kd).getDay();
-              const isHol2=yHols.has(key);
-              const isClosed2=isWE(dow2)||isHol2;
-              counts[midi].astrDays++;
-              if(isClosed2){
-                const prev=new Date(ky,km-1,kd-1);
-                const prevKey=dk_(prev.getFullYear(),prev.getMonth(),prev.getDate());
-                const prevDow=prev.getDay();
-                const prevClosed=isWE(prevDow)||yHols.has(prevKey);
-                if(!prevClosed) counts[midi].astrBlocsWEJF++;
-              } else {
-                const next=new Date(ky,km-1,kd+1);
-                const nextKey=dk_(next.getFullYear(),next.getMonth(),next.getDate());
-                const nextDow=next.getDay();
-                const nextClosed=isWE(nextDow)||yHols.has(nextKey);
-                if(nextClosed) counts[midi].astrBlocsWEJF++;
-              }
-            });
+        // ── Astreintes ────────────────────────────────────────────
+        // On fusionne les mois validés de l'année avant de découper en
+        // blocs : un bloc WE/JF peut chevaucher deux mois (sam 31 / dim 1er).
+        const allAstr={};
+        Object.values(months).forEach(({astreintes:a})=>{ Object.assign(allAstr, a||{}); });
+        const astrKeys=Object.keys(allAstr).sort();
+        const dayIdx=key=>{const [y,m,d]=key.split('-').map(Number);return Math.floor(Date.UTC(y,m-1,d)/86400000);};
+        const isClosedKey=key=>{const [y,m,d]=key.split('-').map(Number);return isWE(new Date(y,m-1,d).getDay())||yHols.has(key);};
+        const vetOf=key=>{const e=allAstr[key]||{};return e.soir||e.midi||null;};
+
+        // Un bloc = une suite de jours consécutifs confiée au même véto
+        // (c'est l'unité attribuée par la génération). Si elle contient au
+        // moins un jour fermé — samedi, dimanche ou férié — c'est un bloc
+        // WE/JF (sam+dim = 1, veille+férié = 1) ; sinon ce sont des nuits
+        // de semaine, comptées une par une.
+        for(let i=0;i<astrKeys.length;){
+          const vid=vetOf(astrKeys[i]);
+          if(!vid||!counts[vid]){ i++; continue; }
+          let j=i, len=0, hasClosed=false;
+          while(j<astrKeys.length && vetOf(astrKeys[j])===vid &&
+                (j===i || dayIdx(astrKeys[j])===dayIdx(astrKeys[j-1])+1)){
+            if(isClosedKey(astrKeys[j])) hasClosed=true;
+            len++; j++;
           }
+          counts[vid].astrDays+=len;
+          if(hasClosed) counts[vid].astrBlocsWEJF++;
+          else          counts[vid].astrNuitsSem+=len;
+          i=j;
+        }
+
+        Object.values(months).forEach(({planning:p})=>{
           Object.entries(p||{}).forEach(([dk,dp])=>{
             if(!dp) return;
             ['matin','aprem'].forEach(slot=>{
@@ -5309,18 +5314,18 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
         const rows=[];
         rows.push(['Vétérinaire','Matins',`Matin ${HORAIRES.matin_A.short}`,`Matin ${HORAIRES.matin_B.short}`,
           'Après-midis',`Après-midi ${HORAIRES.aprem_A.short}`,`Après-midi ${HORAIRES.aprem_B.short}`,
-          'Total demi-journées','Équiv. jours complets','Astreintes (jours)','Blocs WE/JF']);
+          'Total demi-journées','Équiv. jours complets','Nuits semaine','Blocs WE/JF','Astreintes (jours)']);
         vets.forEach(v=>{
           const d=data[v.id]||{matin:0,aprem:0,matinH:{matin_A:0,matin_B:0},apremH:{aprem_A:0,aprem_B:0}};
           const total=d.matin+d.aprem;
           rows.push([v.name,d.matin,d.matinH.matin_A,d.matinH.matin_B,
             d.aprem,d.apremH.aprem_A,d.apremH.aprem_B,
-            total,+(total/2).toFixed(1),d.astrDays||0,d.astrBlocsWEJF||0]);
+            total,+(total/2).toFixed(1),d.astrNuitsSem||0,d.astrBlocsWEJF||0,d.astrDays||0]);
         });
         const sum=f=>vets.reduce((s,v)=>s+f(data[v.id]||{}),0);
         rows.push(['Total équipe',sum(d=>d.matin||0),sum(d=>d.matinH?.matin_A||0),sum(d=>d.matinH?.matin_B||0),
           sum(d=>d.aprem||0),sum(d=>d.apremH?.aprem_A||0),sum(d=>d.apremH?.aprem_B||0),
-          totalDJ,+(totalDJ/2).toFixed(1),sum(d=>d.astrDays||0),sum(d=>d.astrBlocsWEJF||0)]);
+          totalDJ,+(totalDJ/2).toFixed(1),sum(d=>d.astrNuitsSem||0),sum(d=>d.astrBlocsWEJF||0),sum(d=>d.astrDays||0)]);
         return rows;
       };
 
@@ -5522,8 +5527,9 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                             <td style={{padding:'12px',textAlign:'center'}}>
                               <span style={{fontWeight:600,color:'#0d9488'}}>{(total/2).toFixed(1)}</span>
                             </td>
-                            <td style={{padding:'12px',textAlign:'center',background:'#f5f3ff44'}}>
-                              <span style={{fontWeight:700,color:'#7c3aed',fontSize:15}}>{d.astrDays||0}</span>
+                            <td style={{padding:'12px',textAlign:'center',background:'#f5f3ff44'}}
+                              title={`${d.astrDays||0} jour(s) d'astreinte au total, blocs WE/JF compris`}>
+                              <span style={{fontWeight:700,color:'#7c3aed',fontSize:15}}>{d.astrNuitsSem||0}</span>
                             </td>
                             <td style={{padding:'12px',textAlign:'center',background:'#fef3c744'}}>
                               <span style={{fontWeight:700,color:'#b45309',fontSize:15}}>{d.astrBlocsWEJF||0}</span>
@@ -5567,7 +5573,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#1f2937',fontSize:15}}>{totalDJ}</td>
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#0d9488'}}>{(totalDJ/2).toFixed(1)}</td>
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#7c3aed',background:'#f5f3ff44'}}>
-                          {vets.reduce((s,v)=>s+(data[v.id]?.astrDays||0),0)}
+                          {vets.reduce((s,v)=>s+(data[v.id]?.astrNuitsSem||0),0)}
                         </td>
                         <td style={{padding:'10px 12px',textAlign:'center',fontWeight:700,color:'#b45309',background:'#fef3c744'}}>
                           {vets.reduce((s,v)=>s+(data[v.id]?.astrBlocsWEJF||0),0)}
