@@ -38,6 +38,90 @@ function markdownToHtml(markdown) {
         .replace(/<p><\/p>/g, '');
 }
 
+function escapeAttr(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Convertit un lien YouTube / Vimeo saisi dans l'admin en URL d'intégration
+// (iframe). Renvoie null si le lien n'est pas reconnu.
+function videoEmbedUrl(url) {
+    if (!url) return null;
+
+    let parsed;
+    try {
+        parsed = new URL(String(url).trim());
+    } catch (_) {
+        return null;
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
+
+    const host = parsed.hostname.replace(/^www\./, '');
+
+    // youtu.be/<id>
+    if (host === 'youtu.be') {
+        const id = parsed.pathname.split('/')[1];
+        return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}` : null;
+    }
+
+    // youtube.com/watch?v=<id>, /embed/<id>, /shorts/<id>, /live/<id>
+    if (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtube-nocookie.com') {
+        const id = parsed.searchParams.get('v')
+            || (parsed.pathname.match(/^\/(?:embed|shorts|live|v)\/([^/?#]+)/) || [])[1];
+        return id ? `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}` : null;
+    }
+
+    // vimeo.com/<id> et player.vimeo.com/video/<id>
+    if (host === 'vimeo.com' || host === 'player.vimeo.com') {
+        const id = (parsed.pathname.match(/(\d+)/) || [])[1];
+        return id ? `https://player.vimeo.com/video/${id}` : null;
+    }
+
+    return null;
+}
+
+// Bloc vidéo d'un article : fichier MP4 uploadé en priorité, sinon lien
+// YouTube / Vimeo. Chaîne vide si l'article n'a pas de vidéo.
+function videoHtml(post) {
+    if (!post) return '';
+
+    if (post.videoFile) {
+        // Pas de `poster` : l'image de l'article imposerait ses proportions au
+        // lecteur et écraserait les vidéos verticales filmées au téléphone.
+        const src = escapeAttr(post.videoFile);
+        return `
+            <div class="article-video article-video-file">
+                <video controls preload="metadata" playsinline src="${src}">
+                    Votre navigateur ne peut pas lire cette vidéo.
+                    <a href="${src}">Télécharger la vidéo</a>
+                </video>
+            </div>`;
+    }
+
+    const embed = videoEmbedUrl(post.videoUrl);
+    if (embed) {
+        return `
+            <div class="article-video article-video-embed">
+                <iframe src="${escapeAttr(embed)}"
+                        title="${escapeAttr(post.title)}"
+                        loading="lazy"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                        referrerpolicy="strict-origin-when-cross-origin"
+                        allowfullscreen></iframe>
+            </div>`;
+    }
+
+    // Lien non reconnu (Facebook, Instagram…) : on propose au moins le lien.
+    if (post.videoUrl && /^https?:\/\//i.test(String(post.videoUrl).trim())) {
+        return `<p class="article-video-link"><a href="${escapeAttr(post.videoUrl)}" target="_blank" rel="noopener">▶ Voir la vidéo</a></p>`;
+    }
+
+    return '';
+}
+
 function formatDate(dateString) {
     const date = new Date(dateString);
     if (Number.isNaN(date.getTime())) return dateString;
@@ -62,7 +146,7 @@ function openArticleModal(post) {
         document.getElementById('articleModalDate').textContent = formatDate(post.date);
         document.getElementById('articleModalTitle').textContent = post.title;
         document.getElementById('articleModalExcerpt').textContent = post.excerpt;
-        document.getElementById('articleModalBody').innerHTML = markdownToHtml(post.body);
+        document.getElementById('articleModalBody').innerHTML = videoHtml(post) + markdownToHtml(post.body);
         document.getElementById('articleModalReadTime').textContent = post.timeToRead ? `Durée de lecture : ${post.timeToRead}` : '';
 
         // Boutons de partage — on pointe vers l'URL propre servie avec les
@@ -240,6 +324,7 @@ function renderArticle(post) {
                 </div>
                 <h1>${post.title}</h1>
                 <p class="article-excerpt">${post.excerpt}</p>
+                ${videoHtml(post)}
                 <div class="article-body">${markdownToHtml(post.body)}</div>
                 <p class="article-note">Durée de lecture : ${post.timeToRead || 'N/A'}</p>
             </div>
