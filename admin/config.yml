@@ -41,6 +41,23 @@ collections:
               - { label: "Date", name: "date", widget: "datetime", format: "YYYY-MM-DD" }
               - { label: "Catégorie", name: "category", widget: "string" }
               - { label: "Image", name: "image", widget: "image", required: false }
+              - label: "Vidéo — lien YouTube / Vimeo"
+                name: "videoUrl"
+                widget: "string"
+                required: false
+                hint: "Facultatif : collez l'adresse d'une vidéo YouTube ou Vimeo (ex : https://www.youtube.com/watch?v=abc123). Le lecteur s'affichera dans l'article, juste sous le chapô. Solution recommandée : aucun fichier lourd n'est stocké sur le site."
+              - label: "Vidéo — fichier MP4"
+                name: "videoFile"
+                widget: "file"
+                required: false
+                accept: "video/mp4,video/webm,.mp4,.webm"
+                media_folder: "/assets/video"
+                public_folder: "/assets/video"
+                media_libraries:
+                  default:
+                    config:
+                      max_file_size: 25000000   # ~25 Mo, sous la limite de 25 Mio/fichier de Cloudflare Pages
+                hint: "Facultatif : pour une courte vidéo tournée à la clinique. 25 Mo maximum (limite de l'hébergement) — au-delà, passez par YouTube et utilisez le champ « lien » ci-dessus. Si les deux champs sont remplis, c'est le fichier qui est affiché."
               - { label: "Extrait", name: "excerpt", widget: "text" }
               - { label: "Durée de lecture", name: "timeToRead", widget: "string", required: false }
               - { label: "Contenu", name: "body", widget: "markdown" }
