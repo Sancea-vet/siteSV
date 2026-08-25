@@ -205,7 +205,10 @@
 
         function closeModal(event) {
             if (event && event.target !== event.currentTarget) return;
-            document.getElementById('teamModal').classList.remove('active');
+            // Les pages sans modale équipe (blog…) appellent aussi cette fonction via Échap
+            const modal = document.getElementById('teamModal');
+            if (!modal) return;
+            modal.classList.remove('active');
             document.body.style.overflow = '';
         }
 
@@ -253,7 +256,9 @@
 
         function closeServiceModal(event) {
             if (event && event.target !== event.currentTarget) return;
-            document.getElementById('serviceModal').classList.remove('active');
+            const modal = document.getElementById('serviceModal');
+            if (!modal) return;
+            modal.classList.remove('active');
             document.body.style.overflow = '';
         }
 
@@ -264,7 +269,8 @@
     if (e.key === 'Escape') {
         closeModal();
         closeServiceModal();
-        closeArticleModal();  // ← ajouter cette ligne
+        // closeArticleModal n'existe que sur les pages qui chargent blog.js
+        if (typeof closeArticleModal === 'function') closeArticleModal();
     }
 });
 

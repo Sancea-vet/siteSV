@@ -5,7 +5,7 @@
    (une seule ligne à modifier), puis publier. Rien d'autre à toucher.
    ------------------------------------------------------------------ */
 window.SANCEA_FORMS = {
-    disabled: true,
+    disabled: false,
     message: "Les formulaires seront activés à l'ouverture de la clinique."
 };
 

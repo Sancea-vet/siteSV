@@ -162,7 +162,7 @@
     
     <link rel="preload" href="assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="assets/css/fonts.css?v=20260719">
-    <link rel="stylesheet" href="assets/css/styles.css?v=20260814">
+    <link rel="stylesheet" href="assets/css/styles.css?v=20260825">
     <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
     <style>
         #navbar { background-color: #ffffff !important; box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important; }
@@ -185,6 +185,7 @@
             <ul class="nav-links" id="navLinks">
                 <li><a href="#accueil">Accueil</a></li>
                 <li><a href="#services">Services</a></li>
+                <li><a href="https://www.vetorino.com/veterinaire/saint-julien-les-villas/boutique/" target="_blank" rel="noopener">Boutique</a></li>
                 <li><a href="#a-propos">À propos</a></li>
                 <li><a href="#equipe">Équipe</a></li>
                 <li><a href="#actualites">Actualités</a></li>
@@ -257,6 +258,12 @@
                     <h3>Urgences & astreinte</h3>
                     <p>En dehors des horaires d'ouverture, un service d'astreinte assure la continuité des soins. Appelez toujours avant de vous déplacer.</p>
                     <span class="view-more">Cliquez pour en savoir plus →</span>
+                </div>
+                <div class="service-card fade-in" onclick="window.open('https://www.vetorino.com/veterinaire/saint-julien-les-villas/boutique/', '_blank', 'noopener')">
+                    <div class="service-icon">🛒</div>
+                    <h3>Boutique en ligne</h3>
+                    <p>Alimentation, parapharmacie et accessoires pour chiens, chats et NAC. Commande en ligne et retrait gratuit à la clinique.</p>
+                    <span class="view-more">Cliquez pour accéder à la boutique →</span>
                 </div>
                 <div class="service-card fade-in" onclick="window.location.href='referencement-veterinaire.html'">
                     <div class="service-icon">🤝</div>
@@ -420,8 +427,8 @@
                 <p>Découvrez nos derniers articles, conseils santé et actualités de la clinique</p>
             </div>
             <div class="blog-grid" id="blogGrid"></div>
-            <div class="fade-in" style="text-align:center; margin-top:2.5rem;">
-                <a href="/blog" class="btn btn-secondary btn-on-light">Voir tous les articles</a>
+            <div class="fade-in" id="voirTousBtn" style="text-align:center; margin-top:2.5rem;">
+                <a href="/blog" class="btn btn-secondary btn-on-light">Voir tous les articles →</a>
             </div>
 
             <div class="social-follow fade-in">
@@ -619,6 +626,7 @@
                     <li><a href="#actualites">Actualités</a></li>
                     <li><a href="/rendez-vous">Prendre RDV en ligne</a></li>
                     <li><a href="#contact">Nous contacter</a></li>
+                    <li><a href="https://www.vetorino.com/veterinaire/saint-julien-les-villas/boutique/" target="_blank" rel="noopener">Boutique en ligne</a></li>
                 </ul>
             </div>
             <div class="footer-links">
@@ -647,10 +655,10 @@
         </div>
     </footer>
 
-    <script src="assets/js/forms-status.js?v=20260719b"></script>
+    <script src="assets/js/forms-status.js?v=20260825"></script>
     <script src="assets/js/contact.js?v=20260719b"></script>
-    <script src="assets/js/main.js?v=20260803"></script>
-    <script src="assets/js/blog.js?v=20260814"></script>
+    <script src="assets/js/main.js?v=20260825"></script>
+    <script src="assets/js/blog.js?v=20260825"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">
     <div class="modal-content modal-large">

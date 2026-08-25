@@ -258,7 +258,9 @@ function renderBlogGrid(posts) {
     if (!blogGrid) return;
 
     const sortedPosts = posts.slice().sort((a, b) => new Date(b.date) - new Date(a.date));
-    const hasModal = !!document.getElementById('articleModal');
+    // La homepage est la seule page à porter le bouton « Voir tous les articles » :
+    // elle limite l'aperçu à 3 articles, la page /blog les affiche tous.
+    const isHomepage = !!document.getElementById('voirTousBtn');
 
     // Aucun article publié : on affiche un message plutôt qu'une section vide
     if (sortedPosts.length === 0) {
@@ -266,27 +268,18 @@ function renderBlogGrid(posts) {
             <p style="grid-column:1/-1; text-align:center; color:var(--text-light); padding:2rem 0;">
                 Aucun article pour le moment. Revenez bientôt !
             </p>`;
-        const existing = document.getElementById('voirTousBtn');
-        if (existing) existing.remove();
+        const btn = document.getElementById('voirTousBtn');
+        if (btn) btn.style.display = 'none';
         return;
     }
 
-    // Sur homepage (avec modal) : 3 articles + bouton "voir tous"
-    // Sur blog.html : tous les articles
-    const postsToShow = hasModal ? sortedPosts.slice(0, 3) : sortedPosts;
+    const postsToShow = isHomepage ? sortedPosts.slice(0, 3) : sortedPosts;
     blogGrid.innerHTML = postsToShow.map(createPostCard).join('');
 
-    // Bouton "Voir tous les articles" uniquement sur homepage
-    if (hasModal && sortedPosts.length > 0) {
-        const existing = document.getElementById('voirTousBtn');
-        if (!existing) {
-            const btn = document.createElement('div');
-            btn.id = 'voirTousBtn';
-            btn.style.cssText = 'text-align:center; margin-top:2rem;';
-            btn.innerHTML = `<a href="/blog" class="btn btn-secondary btn-on-light">Voir tous les articles →</a>`;
-            blogGrid.parentNode.insertBefore(btn, blogGrid.nextSibling);
-        }
-    }
+    // Le bouton "Voir tous les articles" est présent dans le HTML de la homepage :
+    // on se contente de l'afficher (il reste masqué s'il n'y a aucun article).
+    const voirTousBtn = document.getElementById('voirTousBtn');
+    if (voirTousBtn) voirTousBtn.style.display = '';
 
     // Réactiver le fade-in sur les cartes injectées dynamiquement
     blogGrid.querySelectorAll('.fade-in').forEach(el => {

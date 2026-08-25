@@ -1125,14 +1125,14 @@
             display: none;
         }
 
-        /* La 9e entrée de menu ne tient plus au-delà de 1200px de contenu */
-        @media (min-width: 769px) and (max-width: 1200px) {
+        /* Les 10 entrées de menu ne tiennent plus dans les 1200px du conteneur */
+        @media (min-width: 1101px) {
             .nav-links {
-                gap: 1.1rem;
+                gap: 1.05rem;
             }
 
             .nav-links a {
-                font-size: 0.92rem;
+                font-size: 0.9rem;
             }
         }
 
@@ -1319,7 +1319,7 @@
             }
         }
 
-        @media (max-width: 768px) {
+        @media (max-width: 1100px) {
             .mobile-menu-btn {
                 display: block;
             }
@@ -1341,7 +1341,9 @@
             .nav-links.active {
                 transform: translateY(0);
             }
+        }
 
+        @media (max-width: 768px) {
             .services-grid,
             .team-grid,
             .testimonials-grid,
