@@ -324,6 +324,33 @@
       return matchRuleScope(rule, y, m, d);
     }
 
+    // ─── Exemption d'astreinte ─────────────────────────────────
+    // Règle {type:'no_astreinte', vetId, scope}
+    // Le vétérinaire concerné travaille normalement (planning inchangé)
+    // mais n'est jamais retenu pour une astreinte.
+    //   scope 'all'     → toutes les astreintes
+    //   scope 'weekday' → soirs de semaine uniquement
+    //   scope 'weekend' → blocs week-end / jours fériés uniquement
+    const ASTR_SCOPES = {
+      all:     {label:"Toutes les astreintes",        short:'Toutes'},
+      weekday: {label:"Soirs de semaine",             short:'Soirs sem.'},
+      weekend: {label:"Week-ends & jours fériés",     short:'WE / JF'},
+    };
+    function isAstreinteExempt(rules, vetId, kind) {
+      return (rules||[]).some(r =>
+        r.type === 'no_astreinte' &&
+        r.vetId === vetId &&
+        (!r.scope || r.scope === 'all' || r.scope === kind)
+      );
+    }
+    // Retire les exemptés d'une liste de candidats.
+    // Si TOUS sont exemptés, on rend la liste d'origine : une astreinte
+    // doit toujours être couverte (l'exemption redevient une préférence).
+    function filterAstreinteEligible(ids, rules, kind) {
+      const keep = ids.filter(vid => !isAstreinteExempt(rules, vid, kind));
+      return keep.length ? keep : ids;
+    }
+
     // Planning vide pour un slot
     const emptySlot = (horaire) => ({ horaire, vets:[] });
     const emptyDay  = () => ({
@@ -870,6 +897,7 @@
  const lastChosenByVet = Object.fromEntries(vets.map(v=>[v.id, -999]));
  const unitScore = (vid, start, days) => {
  let s = (load[vid]?.weJf||0)*100 + (load[vid]?.soir||0)*8 + (load[vid]?.dj||0)*2;
+ if(isAstreinteExempt(rules, vid, 'weekend')) s += 5000;
  const dist = start - (lastChosenByVet[vid]||-999);
  if(dist<=2) s += 80; else if(dist<=4) s += 35;
  days.forEach(dd=>{
@@ -886,7 +914,7 @@
  units.sort((a,b)=>a.days[0]-b.days[0]);
  units.forEach(unit=>{
  const start = unit.days[0];
- let elig = vets.map(v=>v.id);
+ let elig = filterAstreinteEligible(vets.map(v=>v.id), rules, 'weekend');
  // filtrage strict : on enlève d'abord ceux qui sont interdits (règle fixe) ou indispo (si possible)
  const ok = (vid) => !unit.days.some(dd=>{
  const k = dayInfo[dd].key;
@@ -919,7 +947,7 @@
  if(unitDaysSet.has(d)) continue;
  if(dayInfo[d].dow===6) continue;
  const key = dayInfo[d].key;
- let elig = vets.map(v=>v.id);
+ let elig = filterAstreinteEligible(vets.map(v=>v.id), rules, 'weekday');
  const ok = (vid) => {
  if(forbiddenDay(vid, d)) return false;
  return !(isUnavailOn(vid,key,'aprem') || isUnavailOn(vid,key,'soir'));
@@ -935,6 +963,7 @@
  const weAstrPrev = (dayInfo[d].dow===1) ? (newA[prevKey]?.soir ?? astreintes[prevKey]?.soir ?? null) : null;
  const score = (vid) => {
  let s = (soirLoad[vid]||0)*50 + (load[vid]?.dj||0)*2;
+ if(isAstreinteExempt(rules, vid, 'weekday')) s += 5000;
  const dist = d - (lastSoirDay[vid]||-999);
  if(dist<=1) s += 200; else if(dist<=3) s += 60;
  if(nextBlocVet && vid===nextBlocVet) s += 120;
@@ -1233,12 +1262,16 @@ const generateAstreintes = useCallback(()=>{
 
  const getForcedAstreinte = (dayNum) => {
  const forced = { midi: null, soir: null };
+ const info = dayInfo[dayNum] || {};
+ const kind = (isWE(info.dow) || info.isHoliday) ? 'weekend' : 'weekday';
  rules.filter(r=>
    r.type==='vet_slot_rule' &&
    matchRuleScope(r, year, month, dayNum) &&
    (r.slot==='matin' || r.slot==='aprem') &&
    vets.some(v=>v.id===r.vetId)
  ).forEach(r=>{
+   // Exemption d'astreinte : la règle d'horaire s'applique, pas l'astreinte
+   if (isAstreinteExempt(rules, r.vetId, kind)) return;
    if (r.horaire === 'aprem_B') forced.soir = r.vetId;
    else forced.midi = r.vetId;
  });
@@ -1365,6 +1398,7 @@ const generateAstreintes = useCallback(()=>{
  const lastChosenByVet = Object.fromEntries(vets.map(v=>[v.id, -999]));
  const unitScore = (vid, start, days) => {
  let s = (load[vid]?.weJf||0)*100 + (load[vid]?.soir||0)*8 + (load[vid]?.dj||0)*2;
+ if(isAstreinteExempt(rules, vid, 'weekend')) s += 5000;
  const dist = start - (lastChosenByVet[vid]||-999);
  if(dist<=2) s += 80; else if(dist<=4) s += 35;
  days.forEach(dd=>{
@@ -1379,7 +1413,7 @@ const generateAstreintes = useCallback(()=>{
  units.sort((a,b)=>a.days[0]-b.days[0]);
  units.forEach(unit=>{
  const start = unit.days[0];
- let elig = vets.map(v=>v.id);
+ let elig = filterAstreinteEligible(vets.map(v=>v.id), rules, 'weekend');
  const ok = (vid) => !unit.days.some(dd=>{
  const k = dayInfo[dd].key;
  if(forbiddenDay(vid, dd)) return true;
@@ -1408,7 +1442,7 @@ const generateAstreintes = useCallback(()=>{
  if(unitDaysSet.has(d)) continue;
  if(dayInfo[d].dow===6) continue;
  const key = dayInfo[d].key;
- let elig = vets.map(v=>v.id);
+ let elig = filterAstreinteEligible(vets.map(v=>v.id), rules, 'weekday');
  const ok = (vid) => {
  if(forbiddenDay(vid, d)) return false;
  return !(isUnavailOn(vid,key,'aprem') || isUnavailOn(vid,key,'soir'));
@@ -1423,6 +1457,7 @@ const generateAstreintes = useCallback(()=>{
  const weAstrPrev2 = (dayInfo[d].dow===1) ? (newA[prevKey2]?.soir ?? astreintes[prevKey2]?.soir ?? null) : null;
  const score = (vid) => {
  let s = (soirLoad[vid]||0)*50 + (load[vid]?.dj||0)*2;
+ if(isAstreinteExempt(rules, vid, 'weekday')) s += 5000;
  const dist = d - (lastSoirDay[vid]||-999);
  if(dist<=1) s += 200; else if(dist<=3) s += 60;
  if(nextBlocVet && vid===nextBlocVet) s += 120;
@@ -2585,7 +2620,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           )}
 
           {editDay&&ReactDOM.createPortal(
-            <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail}
+            <EditModal datekey={editDay} vets={vets} planning={planning} unavail={unavail} rules={rules}
               allAlerts={allAlerts} updateSubSlot={updateSubSlot}
               resolveHoraire={resolveHoraire} year={year} month={month}
               isoWeek={isoWeek} weekParity={weekParity} openDays={openDays}
@@ -2999,7 +3034,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
     }
 
     // ─── Modal édition ─────────────────────────────────────────
-    function EditModal({datekey,vets,planning,unavail,allAlerts,updateSubSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose,holidays}){
+    function EditModal({datekey,vets,planning,unavail,rules,allAlerts,updateSubSlot,resolveHoraire,year,month,isoWeek,weekParity,openDays,astreintes,setAstreintes,onClose,holidays}){
       const p=datekey.split('-');
       const day=parseInt(p[2]), m=parseInt(p[1])-1, y=+p[0];
       const dow=new Date(y,m,day).getDay();
@@ -3135,7 +3170,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
               {/* ── Panneau Astreinte ── */}
               {activeSlot==='astreinte'&&(
-                <AstreintePanel datekey={datekey} vets={vets} astreintes={astreintes}
+                <AstreintePanel datekey={datekey} vets={vets} astreintes={astreintes} rules={rules}
                   setAstreintes={setAstreintes} dow={dow} wp={wp} holidays={holidays}/>
               )}
               <p style={{fontSize:11,color:'#9ca3af',marginTop:14,textAlign:'center'}}>Modifications sauvegardées automatiquement</p>
@@ -3147,10 +3182,29 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
 
     // ─── Panneau Astreinte (dans la modal) ────────────────────
-    function AstreintePanel({datekey,vets,astreintes,setAstreintes,dow,wp,holidays}){
+    function AstreintePanel({datekey,vets,astreintes,setAstreintes,dow,wp,holidays,rules}){
       const dayA = astreintes[datekey]||{midi:null,soir:null};
       const we   = isWE(dow);
       const isHol = holidays&&holidays.has(datekey);
+      // Exemptions d'astreinte applicables à ce jour
+      const astrKind = (we||isHol) ? 'weekend' : 'weekday';
+      const exemptIds = new Set(vets.filter(v=>isAstreinteExempt(rules,v.id,astrKind)).map(v=>v.id));
+      const exemptWarn = (vid) => {
+        if(!vid || !exemptIds.has(vid)) return null;
+        const v = vets.find(x=>x.id===vid);
+        const rule = (rules||[]).find(r=>
+          r.type==='no_astreinte' && r.vetId===vid &&
+          (!r.scope || r.scope==='all' || r.scope===astrKind)
+        );
+        const sc = ASTR_SCOPES[(rule&&rule.scope)||'all'] || ASTR_SCOPES.all;
+        return (
+          <div style={{marginTop:8,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,
+            padding:'7px 11px',fontSize:11,color:'#92400e',lineHeight:1.5}}>
+            ⚠️ <strong>{v?v.name:'Ce vétérinaire'}</strong> est exempté d'astreinte
+            ({sc.label}) — affectation manuelle conservée.
+          </div>
+        );
+      };
       const [y,m,d]=datekey.split('-').map(Number);
       const nextDate=new Date(y,m-1,d+1);
       const nextKey=`${nextDate.getFullYear()}-${String(nextDate.getMonth()+1).padStart(2,'0')}-${String(nextDate.getDate()).padStart(2,'0')}`;
@@ -3200,9 +3254,10 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                 {cur&&<button onClick={()=>setAstreintes(prev=>({...prev,[datekey]:{midi:null,soir:null}}))}
                   style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>Effacer</button>}
               </div>
-              <VetSelector vets={vets} value={cur} onChange={v=>{
+              <VetSelector vets={vets} value={cur} exemptIds={exemptIds} onChange={v=>{
                 setAstreintes(prev=>({...prev,[datekey]:{midi:v,soir:v}}));
               }}/>
+              {exemptWarn(cur)}
             </div>
             <AstrInfoBox/>
           </div>
@@ -3224,7 +3279,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               {soirCur&&<button onClick={()=>setSoir(null)}
                 style={{background:'none',border:'none',cursor:'pointer',fontSize:11,color:'#9ca3af'}}>Effacer</button>}
             </div>
-            <VetSelector vets={vets} value={soirCur} onChange={setSoir}/>
+            <VetSelector vets={vets} value={soirCur} exemptIds={exemptIds} onChange={setSoir}/>
+            {exemptWarn(soirCur)}
           </div>
 
           {/* MIDI — lié au soir par défaut */}
@@ -3253,7 +3309,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               </button>
             </div>
             {showMidiOverride ? (
-              <VetSelector vets={vets} value={midiCur} onChange={setMidi}/>
+              <VetSelector vets={vets} value={midiCur} exemptIds={exemptIds} onChange={setMidi}/>
             ) : (
               <div style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',
                 background:'#f8fafc',borderRadius:8,border:'1px dashed #e2e8f0'}}>
@@ -3276,11 +3332,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       );
     }
 
-    function VetSelector({vets,value,onChange}){
+    function VetSelector({vets,value,onChange,exemptIds}){
       return(
         <div style={{display:'flex',flexDirection:'column',gap:6}}>
           {vets.map(v=>{
             const on=value===v.id;
+            const exempt=exemptIds&&exemptIds.has(v.id);
             return(
               <button key={v.id} onClick={()=>onChange(on?null:v.id)} style={{
                 display:'flex',alignItems:'center',gap:10,padding:'9px 13px',borderRadius:10,
@@ -3291,6 +3348,8 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               }}>
                 <div style={{width:10,height:10,borderRadius:'50%',background:v.color,flexShrink:0}}/>
                 <span style={{flex:1,fontWeight:on?600:400}}>{v.name}</span>
+                {exempt&&<span title="Exempté d'astreinte" style={{fontSize:10,color:'#92400e',fontWeight:700,
+                  background:'#fffbeb',padding:'2px 7px',borderRadius:4,border:'1px solid #fde68a'}}>EXEMPTÉ</span>}
                 {v.phone&&<span style={{fontSize:11,color:'#6b7280'}}>📞 {v.phone}</span>}
                 {on&&<span style={{color:v.color,fontSize:16}}>✓</span>}
               </button>
@@ -4449,6 +4508,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const [dow,          setDow]          = useState(1);
       const [horaire,      setHoraire]      = useState('matin_A');
       const [fixedDayRule, setFixedDayRule] = useState(false);
+      const [astrScope,    setAstrScope]    = useState('all');
 
       const JOURS_FR=['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
 
@@ -4488,6 +4548,12 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           if(prev.some(r=>r.type==='never_slot'&&r.vetId===vetId&&r.slot===slot&&r.dayOfWeek===+dow&&r.weekParity===parity)) return prev;
           return [...prev,{...base,vetId,dayOfWeek:+dow}];
         });
+        else if(rType==='no_astreinte'&&vetId) setRules(prev=>{
+          const exists=prev.find(r=>r.type==='no_astreinte'&&r.vetId===vetId);
+          const rule={id:uid(),type:'no_astreinte',vetId,scope:astrScope};
+          // une seule exemption par véto : on remplace la portée
+          return exists?prev.map(r=>r===exists?{...rule,id:r.id}:r):[...prev,rule];
+        });
       };
 
       const pLabel=p=>p==='even'?'Paire':p==='odd'?'Impaire':'Toutes';
@@ -4514,6 +4580,13 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
           const vetName = vets.find(v=>v.id===r.vetId)?.name || 'Vétérinaire';
           const dayLabel = r.dayOfWeek !== undefined ? ` ${JS_FULL[r.dayOfWeek]}` : '';
           return <span>🚫 {vetName} — {sl} —{dayLabel} — S. {pl}</span>;
+        }
+        if(r.type==='no_astreinte'){
+          const vetName = vets.find(v=>v.id===r.vetId)?.name || 'Vétérinaire';
+          const sc = ASTR_SCOPES[r.scope||'all'] || ASTR_SCOPES.all;
+          return <span>🌙🚫 <strong>{vetName}</strong> — exempté d'astreinte
+            <span style={{margin:'0 4px',fontWeight:700,color:'#7c3aed'}}>{sc.label}</span>
+            — travaille normalement par ailleurs</span>;
         }
         return <span>{r.type}</span>;
       };
@@ -4734,6 +4807,28 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             </div>
           </div>
 
+          {/* Exemptions d'astreinte */}
+          <div className="g-card" style={{marginBottom:16}}>
+            <h3 style={{fontSize:13,fontWeight:600,marginBottom:4,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>
+              🌙 Exemptions d'astreinte
+            </h3>
+            <p style={{fontSize:12,color:'#9ca3af',marginBottom:10,lineHeight:1.6}}>
+              Un vétérinaire exempté continue d'être planifié normalement sur les créneaux
+              (matin / après-midi), mais n'est jamais retenu par le générateur pour une astreinte.
+              Si tous les vétérinaires sont exemptés sur une même portée, l'exemption redevient une
+              simple préférence : une astreinte doit toujours être couverte.
+            </p>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {byType('no_astreinte').map(r=>(
+                <div key={r.id} className="rule-row">
+                  <span style={{flex:1,fontSize:13}}>{labelOf(r)}</span>
+                  <button onClick={()=>setRules(p=>p.filter(x=>x.id!==r.id))} className="btn-danger-soft">Suppr.</button>
+                </div>
+              ))}
+              {byType('no_astreinte').length===0&&<p style={{fontSize:12,color:'#9ca3af'}}>Aucune exemption d'astreinte</p>}
+            </div>
+          </div>
+
           {/* Ajouter une règle */}
           <div className="g-card">
             <h3 style={{fontSize:13,fontWeight:600,marginBottom:16,color:'#6b7280',textTransform:'uppercase',letterSpacing:'.06em'}}>Ajouter une règle</h3>
@@ -4745,8 +4840,10 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   <option value="horaire_rule">Horaire par parité</option>
                   <option value="vet_slot_rule">Affectation vétérinaire</option>
                   <option value="never_slot">Exclusion créneau</option>
+                  <option value="no_astreinte">Exemption d'astreinte</option>
                 </select>
               </div>
+              {rType!=='no_astreinte'&&<>
               <div>
                 <span className="g-label">Créneau</span>
                 <select value={slot} onChange={e=>{
@@ -4769,6 +4866,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   <option value="odd">Impaire</option>
                 </select>
               </div>
+              </>}
               {rType==='min_per_slot'&&<>
                 <div>
                   <span className="g-label">Jours</span>
@@ -4848,6 +4946,23 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   <span className="g-label">Jour exclu</span>
                   <select value={dow} onChange={e=>setDow(e.target.value)} className="g-input">
                     {JS_FULL.map((d,i)=><option key={i} value={i}>{d}</option>)}
+                  </select>
+                </div>
+              </>}
+              {rType==='no_astreinte'&&<>
+                <div>
+                  <span className="g-label">Vétérinaire</span>
+                  <select value={vetId} onChange={e=>setVetId(e.target.value)} className="g-input">
+                    <option value="">Choisir…</option>
+                    {vets.map(v=><option key={v.id} value={v.id}>{v.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className="g-label">Portée de l'exemption</span>
+                  <select value={astrScope} onChange={e=>setAstrScope(e.target.value)} className="g-input">
+                    {Object.entries(ASTR_SCOPES).map(([id,sc])=>(
+                      <option key={id} value={id}>{sc.label}</option>
+                    ))}
                   </select>
                 </div>
               </>}
