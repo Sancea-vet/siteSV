@@ -417,6 +417,34 @@
             gap: 2rem;
         }
 
+        /* Sous-titre introduisant un groupe (vétérinaires, ASV) dans la section équipe */
+        .team-subheader {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .team-subheader:not(:first-of-type) {
+            margin-top: 4rem;
+        }
+
+        .team-subheader h3 {
+            font-size: 1.5rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .team-subheader p {
+            color: var(--text-light);
+            max-width: 640px;
+            margin: 0 auto;
+        }
+
+        /* Grille ASV : cartes de largeur fixe et centrées, pour qu'un membre
+           seul ne s'étire pas sur toute la largeur de la page. */
+        .team-grid-asv {
+            grid-template-columns: repeat(auto-fit, 260px);
+            justify-content: center;
+        }
+
         .team-card {
             background: white;
             border-radius: 20px;
@@ -431,6 +459,16 @@
             box-shadow: var(--shadow-lg);
         }
 
+        /* Carte sans popup ni fiche dédiée (ASV) : pas d'interaction au clic */
+        .team-card-static {
+            cursor: default;
+        }
+
+        .team-card-static:hover {
+            transform: none;
+            box-shadow: var(--shadow);
+        }
+
         .team-card img {
             width: 100%;
             height: 280px;
@@ -443,7 +481,8 @@
             text-align: center;
         }
 
-        .team-info h3 {
+        .team-info h3,
+        .team-info h4 {
             font-size: 1.25rem;
             margin-bottom: 0.25rem;
         }
