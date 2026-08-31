@@ -1,4 +1,11 @@
 // Contact form handler - Resend via Cloudflare Pages Function
+//
+// L'endpoint est `/form/contact` et non `/api/contact` : `/api/*` est protégé
+// par Cloudflare Access, qui redirigeait le POST (302) vers sa page de login.
+// Cette page ne renvoie pas d'en-tête CORS, le fetch échouait donc avant même
+// d'atteindre la fonction et aucun message n'était envoyé.
+const FORM_ENDPOINT = '/form/contact';
+const SUBMIT_TIMEOUT_MS = 60000;
 
 // Fill the Turnstile token when the widget validates
 const setTurnstileToken = (value) => {
@@ -42,14 +49,26 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Sans garde-fou, une requête qui n'aboutit jamais laisse le bouton
+        // bloqué sur « Envoi en cours... » : on borne l'attente.
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
+
         try {
-            const response = await fetch('/api/contact', {
+            const response = await fetch(FORM_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData)
+                body: JSON.stringify(formData),
+                signal: controller.signal
             });
 
-            const result = await response.json();
+            let result = {};
+            try {
+                result = await response.json();
+            } catch (parseErr) {
+                alert('Erreur : réponse inattendue du serveur (code ' + response.status + '). Réessayez ou écrivez-nous à contact@sanceavet.fr.');
+                return;
+            }
 
             if (response.ok && result.success) {
                 alert('Message envoyé avec succès ! Nous vous contacterons rapidement.');
@@ -58,8 +77,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 alert('Erreur : ' + (result.error || "Une erreur est survenue lors de l'envoi."));
             }
         } catch (err) {
-            alert('Erreur de connexion. Veuillez vérifier votre connexion et réessayer.');
+            if (err && err.name === 'AbortError') {
+                alert("L'envoi a pris trop de temps et a été interrompu. Réessayez ou écrivez-nous à contact@sanceavet.fr.");
+            } else {
+                alert('Erreur de connexion. Veuillez vérifier votre connexion et réessayer.');
+            }
         } finally {
+            clearTimeout(timeoutId);
             // Le token Turnstile est à usage unique et déjà consommé par siteverify :
             // il faut regénérer le widget pour permettre un nouvel envoi.
             setTurnstileToken('');

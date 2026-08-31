@@ -435,6 +435,13 @@
     const errorMsg = document.getElementById('errorMsg');
     const errorText = document.getElementById('errorText');
 
+    // Endpoint public : hors de /api/*, qui est protégé par Cloudflare Access.
+    const FORM_ENDPOINT = '/form/contact';
+    const SUBMIT_TIMEOUT_MS = 90000;
+    const MAX_FILES = 5;
+    const MAX_FILE_BYTES = 10 * 1024 * 1024;   // 10 Mo par fichier (limite serveur)
+    const MAX_TOTAL_BYTES = 20 * 1024 * 1024;  // 20 Mo au total, pour ne pas bloquer l'envoi
+
     let filesQueue = [];
 
     dropZone.addEventListener('click', () => fileInput.click());
@@ -457,8 +464,18 @@
             const notDup = !filesQueue.some(q => q.name === f.name && q.size === f.size);
             return valid && notDup;
         });
-        if (filesQueue.length + newFiles.length > 5) {
-            alert('Maximum 5 fichiers.'); return;
+        if (filesQueue.length + newFiles.length > MAX_FILES) {
+            alert('Maximum ' + MAX_FILES + ' fichiers.'); return;
+        }
+        const tooBig = newFiles.find(f => f.size > MAX_FILE_BYTES);
+        if (tooBig) {
+            alert('Le fichier « ' + tooBig.name + ' » dépasse 10 Mo. Merci de le compresser ou de l\'envoyer par e-mail à refere@sanceavet.fr.');
+            return;
+        }
+        const total = filesQueue.concat(newFiles).reduce((sum, f) => sum + f.size, 0);
+        if (total > MAX_TOTAL_BYTES) {
+            alert('Le total des pièces jointes dépasse ' + formatSize(MAX_TOTAL_BYTES) + '. Merci d\'en retirer ou de les envoyer par e-mail à refere@sanceavet.fr.');
+            return;
         }
         filesQueue = filesQueue.concat(newFiles);
         renderFiles();
@@ -588,13 +605,27 @@
                 turnstileToken: form.turnstileToken ? form.turnstileToken.value : ''
             };
 
-            const res = await fetch('/api/contact', {  // ← Même endpoint que le contact
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            // Sans garde-fou, une requête qui n'aboutit jamais laisse le bouton
+            // tourner indéfiniment : on borne l'attente pour toujours conclure.
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
 
-            const data = await res.json();
+            let res, data = {};
+            try {
+                res = await fetch(FORM_ENDPOINT, {  // ← Même endpoint que le contact
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                    signal: controller.signal
+                });
+                try {
+                    data = await res.json();
+                } catch (parseErr) {
+                    throw new Error(`Réponse inattendue du serveur (erreur ${res.status}). Réessayez ou envoyez le dossier à refere@sanceavet.fr.`);
+                }
+            } finally {
+                clearTimeout(timeoutId);
+            }
 
             if (!res.ok || !data.success) {
                 throw new Error(data.error || `Envoi impossible (erreur ${res.status}). Réessayez ou contactez-nous à refere@sanceavet.fr.`);
@@ -609,8 +640,17 @@
             }, 2000);
 
         } catch (err) {
-            errorText.textContent = err.message;
+            // Le bloc d'erreur est en haut du formulaire, très loin du bouton :
+            // sans scroll, l'échec passait totalement inaperçu.
+            if (err && err.name === 'AbortError') {
+                errorText.textContent = "L'envoi a pris trop de temps et a été interrompu. Vérifiez votre connexion, réduisez les pièces jointes, puis réessayez — ou envoyez le dossier à refere@sanceavet.fr.";
+            } else if (err instanceof TypeError) {
+                errorText.textContent = "Impossible de joindre le serveur d'envoi. Vérifiez votre connexion et réessayez — ou envoyez le dossier à refere@sanceavet.fr.";
+            } else {
+                errorText.textContent = err.message;
+            }
             errorMsg.classList.add('show');
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } finally {
             // Le token Turnstile est à usage unique et déjà consommé par siteverify :
             // il faut regénérer le widget pour permettre une nouvelle tentative.
