@@ -2,6 +2,15 @@
  * SanceaVet — API Cloudflare Pages Function
  * Auth déléguée à Cloudflare Access — aucune vérification de token ici.
  *
+ * COPIE DE SECOURS, EN LECTURE SEULE (depuis la bascule de l'étape 3 de
+ * PORTAIL.md, dépôt docker-clinic). Le planning vit sur le serveur de la
+ * clinique (dépôt « serveur », service planning) ; celui-ci repousse chaque
+ * nuit les clés planning_data_v1, freepbx_config et planning_copie_du dans ce
+ * KV. Ici on consulte : toute écriture est refusée (403), et GET /api/data
+ * dit à la page qu'elle est une copie (X-Lecture-Seule, X-Copie-Du).
+ * GET /api/freepbx/day reste servi : c'est le repli de n8n si le serveur
+ * tombait avant 8 h 30.
+ *
  * Routes :
  *   GET    /api/data         → charge toutes les données
  *   PUT    /api/data         → sauvegarde toutes les données
@@ -15,6 +24,10 @@
 
 const KV_KEY         = 'planning_data_v1';
 const FREEPBX_KV_KEY = 'freepbx_config';
+const COPIE_DU_KEY   = 'planning_copie_du';
+
+const LECTURE_SEULE = 'Copie de secours en lecture seule : le planning se modifie '
+  + 'sur le serveur de la clinique (réseau local ou VPN).';
 
 const CORS = {
   'Access-Control-Allow-Origin' : '*',
@@ -41,10 +54,20 @@ export async function onRequest(context) {
 
   const path = new URL(request.url).pathname;
 
+  if (path.startsWith('/api/') && ['PUT', 'DELETE', 'POST'].includes(request.method)) {
+    return text(LECTURE_SEULE, 403);
+  }
+
   if (path === '/api/data' && request.method === 'GET') {
     try {
       const raw = await env.PLANNING_KV.get(KV_KEY);
-      return json(raw ? JSON.parse(raw) : {});
+      const copieDu = await env.PLANNING_KV.get(COPIE_DU_KEY);
+      return new Response(raw || '{}', {
+        status: 200,
+        headers: { ...CORS, 'Content-Type': 'application/json',
+                   'Cache-Control': 'no-store',
+                   'X-Lecture-Seule': '1', 'X-Copie-Du': copieDu || '' },
+      });
     } catch (err) {
       return text(`Erreur lecture: ${err.message}`, 500);
     }
