@@ -201,22 +201,65 @@
   <script type="text/babel">
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
 
-    // ─── Persistance Worker KV ─────────────────────────────────
+    // ─── Persistance : service « planning » du serveur de la clinique ───
+    // Chaque sauvegarde dit sur quelle révision elle s'appuie. Si le planning
+    // a été modifié ailleurs entre-temps (autre onglet, autre poste), le
+    // serveur refuse (409) : on arrête d'enregistrer et on propose de
+    // recharger, au lieu d'écraser le travail de l'autre.
     const API_DATA_URL = '/api/data';
+    let REVISION = null;
+    let CONFLIT = false;
+    // La copie de secours (sanceavet.fr, KV Cloudflare) se déclare par
+    // l'en-tête X-Lecture-Seule : on y consulte, on n'y enregistre rien.
+    let LECTURE_SEULE = false;
 
     async function loadRemoteData() {
-      const res = await fetch(API_DATA_URL);
+      const res = await fetch(API_DATA_URL, { cache: 'no-store' });
       if (!res.ok) throw new Error(`Erreur chargement: ${res.status}`);
+      REVISION = res.headers.get('X-Revision');
+      if (res.headers.get('X-Lecture-Seule') === '1') signalerLectureSeule(res.headers.get('X-Copie-Du'));
       return res.json();
     }
 
+    function signalerLectureSeule(copieDu) {
+      if (LECTURE_SEULE) return;
+      LECTURE_SEULE = true;
+      const b = document.createElement('div');
+      b.setAttribute('role', 'status');
+      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 16px;'
+        + 'background:#f6b60e;color:#1f2937;font:600 14px system-ui,sans-serif;text-align:center';
+      b.textContent = 'Copie de secours, en lecture seule'
+        + (copieDu ? ' (copiée le ' + new Date(copieDu).toLocaleString('fr-FR') + ')' : '')
+        + '. Le planning se modifie sur le serveur de la clinique, depuis le réseau local ou le VPN.';
+      document.body.append(b);
+    }
+
+    function signalerConflit() {
+      if (CONFLIT) return;
+      CONFLIT = true;
+      const b = document.createElement('div');
+      b.setAttribute('role', 'alert');
+      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;padding:12px 16px;'
+        + 'background:#b3261e;color:#fff;font:600 15px system-ui,sans-serif;text-align:center';
+      b.textContent = 'Le planning a été modifié depuis un autre onglet ou un autre poste. '
+        + 'Vos dernières modifications ne sont pas enregistrées. ';
+      const bouton = document.createElement('button');
+      bouton.textContent = 'Recharger le planning';
+      bouton.style.cssText = 'margin-left:8px;padding:4px 12px;font:inherit;cursor:pointer';
+      bouton.onclick = () => location.reload();
+      b.append(bouton);
+      document.body.append(b);
+    }
+
     async function saveRemoteData(data) {
-      const res = await fetch(API_DATA_URL, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      if (LECTURE_SEULE) throw new Error('Copie de secours : lecture seule');
+      if (CONFLIT) throw new Error('Conflit : rechargement nécessaire');
+      const headers = { 'Content-Type': 'application/json' };
+      if (REVISION !== null) headers['X-Revision-Base'] = REVISION;
+      const res = await fetch(API_DATA_URL, { method: 'PUT', headers, body: JSON.stringify(data) });
+      if (res.status === 409) { signalerConflit(); throw new Error('Conflit de révision'); }
       if (!res.ok) throw new Error(`Erreur sauvegarde: ${res.status}`);
+      REVISION = res.headers.get('X-Revision') || REVISION;
     }
 
     // ─── Constantes ────────────────────────────────────────────
