@@ -224,14 +224,15 @@
     function signalerLectureSeule(copieDu) {
       if (LECTURE_SEULE) return;
       LECTURE_SEULE = true;
-      const b = document.createElement('div');
-      b.setAttribute('role', 'status');
-      b.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 16px;'
-        + 'background:#f6b60e;color:#1f2937;font:600 14px system-ui,sans-serif;text-align:center';
-      b.textContent = 'Copie de secours, en lecture seule'
-        + (copieDu ? ' (copiée le ' + new Date(copieDu).toLocaleString('fr-FR') + ')' : '')
-        + '. Le planning se modifie sur le serveur de la clinique, depuis le réseau local ou le VPN.';
-      document.body.append(b);
+      // Plus de bandeau : la page n'est plus qu'une consultation (on n'y
+      // modifie rien). La date de la copie s'inscrit sous le titre.
+      const dire = () => {
+        const el = document.getElementById('copie-du');
+        if (!el) return setTimeout(dire, 200);
+        if (copieDu) el.textContent = ' · copie du ' + new Date(copieDu).toLocaleString('fr-FR',
+          { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      };
+      dire();
     }
 
     function signalerConflit() {
@@ -2545,10 +2546,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
       const TABS=[
         {id:'planning',label:'Planning',icon:'📅'},
         {id:'asv',     label:'Planning ASV',icon:'👩‍⚕️'},
-        {id:'equipe',  label:'Équipe',  icon:'👥'},
-        {id:'regles',  label:'Règles',  icon:'⚙️'},
         {id:'stats',   label:'Statistiques', icon:'📊'},
-        {id:'sync',    label:'Google Sync',icon:'🔗'},
       ];
 
       return (
@@ -2558,7 +2556,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               <h1 style={{fontFamily:"'Playfair Display',serif",fontSize:28,fontWeight:700,color:'#1f2937',marginBottom:4}}>
                 Planning vétérinaire
               </h1>
-              <p style={{color:'#6b7280',fontSize:14}}>Gestion par demi-journées · semaines paires/impaires · jours fériés automatiques · sauvegarde automatique</p>
+              <p style={{color:'#6b7280',fontSize:14}}>Consultation — le planning se modifie sur le serveur de la clinique<span id="copie-du"></span></p>
             </div>
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               {saveFlash&&(
@@ -2570,18 +2568,6 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               )}
               <button onClick={exportJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#0d9488',borderColor:'#99f6e4'}}>
                 ⬇ Exporter
-              </button>
-              <button onClick={importJSON} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#7c3aed',borderColor:'#c4b5fd'}}>
-                ⬆ Importer
-              </button>
-              <button onClick={()=>{
-                if(!confirm('Réinitialiser uniquement le mois affiché ?')) return;
-                resetCurrentMonth().catch(err => {
-                  console.error('Erreur de réinitialisation du mois courant', err);
-                  alert('❌ Impossible de réinitialiser le mois affiché');
-                });
-              }} className="btn-ghost" style={{fontSize:12,padding:'5px 12px',color:'#ef4444',borderColor:'#fecaca'}}>
-                🗑 Réinitialiser mois
               </button>
             </div>
           </div>
@@ -2699,7 +2685,7 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
               e.preventDefault();
               e.stopPropagation();
               if (e.stopImmediatePropagation) e.stopImmediatePropagation();
-              setEditDay(cell.getAttribute('data-datekey') || (cell.dataset && cell.dataset.datekey));
+              // Consultation seule : pas de fenêtre d'édition.
             }
           } catch(err) {
             console.error('planning click handler error', err);
@@ -2781,16 +2767,6 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
             <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
               {hasP&&totalAlerts===0&&validated&&<span style={{color:'#059669',fontSize:13,fontWeight:600}}>✓ Validé</span>}
               {totalAlerts>0&&<span style={{color:'#d97706',fontSize:13,fontWeight:600}}>⚠ {totalAlerts} alerte(s)</span>}
-              <button onClick={()=>setShowU(v=>!v)} className="btn-ghost">
-                📋 Indispos {totalU>0&&<span style={{color:'#d97706',fontWeight:700,marginLeft:2}}>({totalU})</span>}
-              </button>
-              <button onClick={onGenerate} className="btn-teal">⚡ Générer planning + astreintes</button>
-              <button onClick={onGenerateAstreintes} className="btn-outline" style={{borderColor:'#8b5cf6',color:'#7c3aed'}}>🌙 Recalc. astreintes seules</button>
-              {hasP&&(
-                <button onClick={onValidate} disabled={validated} className="btn-success">
-                  {validated?'✓ Validé':'✓ Valider'}
-                </button>
-              )}
             </div>
           </div>
 
@@ -3503,9 +3479,6 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
                   ⚠️ Aucun planning vétérinaire pour ce mois — générez d'abord depuis l'onglet 📅 Planning.
                 </div>
               )}
-              {hasVetPlanning&&(
-                <button onClick={onGenerate} className="btn-teal">⚡ Générer planning ASV</button>
-              )}
               {hasPlanning&&(<>
                 <button onClick={onExportASVICS}
                   title="Export .ics — compatible Google Calendar, Outlook, Apple Calendar"
@@ -3631,7 +3604,6 @@ const numDays  = useMemo(()=>daysInMonth(year,month),[year,month]);
 
                     return(
                       <div key={di}
-                        onClick={()=>!closed&&setEditKey(key)}
                         className={'cal-cell'+(isHoliday?' holiday':closed?' closed':we?' we-day':'')
                           +(hasDayData&&!closed?' asv-has-data':'')}>
                         {/* En-tête jour */}
