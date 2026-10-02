@@ -94,6 +94,14 @@ export async function onRequestPost(context) {
       };
       const followUpLabel = followUpLabels[formData.followUp] || formData.followUp || 'Non renseigné';
 
+      const sexLabels = {
+        'male': 'Mâle',
+        'male-castre': 'Mâle castré',
+        'femelle': 'Femelle',
+        'femelle-sterilisee': 'Femelle stérilisée'
+      };
+      const sexLabel = sexLabels[formData.patientSex] || formData.patientSex || 'Non renseigné';
+
       htmlBody = `
 <h3>Référer un patient</h3>
 
@@ -101,10 +109,19 @@ export async function onRequestPost(context) {
 <b>Email:</b> ${escapeHtml(formData.vetEmail)}<br>
 <b>Téléphone:</b> ${escapeHtml(formData.vetPhone || 'Non renseigné')}<br>
 <b>Clinique:</b> ${escapeHtml(formData.clinicName)}<br>
+<b>Adresse clinique:</b> ${escapeHtml(formData.clinicAddress || 'Non renseignée')}<br>
+
+<h4>Propriétaire</h4>
+Nom: ${escapeHtml(formData.ownerName)}<br>
+Téléphone: ${escapeHtml(formData.ownerPhone || 'Non renseigné')}<br>
 
 <h4>Patient</h4>
 Nom: ${escapeHtml(formData.patientName)}<br>
 Espèce: ${escapeHtml(formData.patientSpecies)}<br>
+Race: ${escapeHtml(formData.patientBreed || 'Non renseignée')}<br>
+Âge: ${escapeHtml(formData.patientAge || 'Non renseigné')}<br>
+Sexe: ${escapeHtml(sexLabel)}<br>
+Poids: ${formData.patientWeight ? escapeHtml(formData.patientWeight) + ' kg' : 'Non renseigné'}<br>
 
 <h4>Motif</h4>
 ${escapeHtml(formData.referralReason)}<br>
@@ -113,7 +130,13 @@ ${escapeHtml(formData.referralReason)}<br>
 
 <h4>Historique</h4>
 ${escapeHtml(formData.clinicalHistory).replace(/\n/g, '<br>')}
-`;
+${formData.treatments ? `
+<h4>Traitements en cours</h4>
+${escapeHtml(formData.treatments).replace(/\n/g, '<br>')}
+` : ''}${formData.additionalInfo ? `
+<h4>Informations complémentaires</h4>
+${escapeHtml(formData.additionalInfo).replace(/\n/g, '<br>')}
+` : ''}`;
     } else {
       if (!formData.name || !formData.email || !formData.message) {
         return new Response(JSON.stringify({ error: 'Champs requis manquants' }), {
