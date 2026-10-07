@@ -157,6 +157,18 @@
                     { year: "2014", name: "Doctorat en Médecine Vétérinaire", school: "ENVA" }
                 ],
                 specialties: "Examens oculaires approfondis, chirurgie ophtalmologique, prise en charge des infections et inflammations oculaires, gestion des glaucomes et des troubles de la vision, consultations de suivi post-opératoire."
+            },
+            anais: {
+                name: "Dr. Anaïs Robin",
+                role: "Médecine générale",
+                image: "assets/img/anais-robin-veterinaire.jpg",
+                profileUrl: "/equipe/anais-robin",
+                tags: ["Médecine Générale"],
+                bio: "Le Dr Anaïs Robin a rejoint l'équipe de Sancéa Vet en 2026, après des études vétérinaires à l'EUVG de Coimbra (Portugal). Au fil de nombreux stages en clinique, elle s'est formée à la médecine des animaux de compagnie. Elle assure les consultations de médecine générale : vaccinations, bilans de santé, suivi préventif et prise en charge des affections courantes des chiens et des chats.",
+                diplomas: [
+                    { year: "2026", name: "Doctorat en Médecine Vétérinaire", school: "EUVG – Coimbra (Portugal)" }
+                ],
+                specialties: "Médecine générale : consultations de prévention et de vaccination, bilans de santé, prise en charge des affections courantes."
             }
         };
 
