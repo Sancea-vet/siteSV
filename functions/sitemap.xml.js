@@ -15,6 +15,7 @@ const STATIC_PAGES = [
   { loc: '/equipe/maxime-bousses', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/lucie-lengelle', priority: '0.8', changefreq: 'monthly' },
   { loc: '/equipe/alexis-racine', priority: '0.8', changefreq: 'monthly' },
+  { loc: '/equipe/anais-robin', priority: '0.8', changefreq: 'monthly' },
   { loc: '/blog', priority: '0.8', changefreq: 'weekly' },
   { loc: '/referencement-veterinaire', priority: '0.7', changefreq: 'monthly' },
   { loc: '/mentions-legales', priority: '0.3', changefreq: 'yearly' },

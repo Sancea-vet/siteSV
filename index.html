@@ -71,7 +71,8 @@
             { "@id": "https://sanceavet.fr/equipe/adrien-le-leuch#person" },
             { "@id": "https://sanceavet.fr/equipe/maxime-bousses#person" },
             { "@id": "https://sanceavet.fr/equipe/lucie-lengelle#person" },
-            { "@id": "https://sanceavet.fr/equipe/alexis-racine#person" }
+            { "@id": "https://sanceavet.fr/equipe/alexis-racine#person" },
+            { "@id": "https://sanceavet.fr/equipe/anais-robin#person" }
           ],
           "availableService": [
             { "@type": "MedicalProcedure", "name": "Consultation vétérinaire de médecine générale et de médecine interne" },
@@ -144,6 +145,17 @@
           "url": "https://sanceavet.fr/equipe/alexis-racine",
           "image": "https://sanceavet.fr/assets/img/alexis-racine-veterinaire.jpg",
           "knowsAbout": ["Ophtalmologie vétérinaire", "Chirurgie oculaire"],
+          "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
+        },
+        {
+          "@type": "Person",
+          "@id": "https://sanceavet.fr/equipe/anais-robin#person",
+          "name": "Dr Anaïs Robin",
+          "honorificPrefix": "Dr",
+          "jobTitle": "Vétérinaire – médecine générale",
+          "url": "https://sanceavet.fr/equipe/anais-robin",
+          "image": "https://sanceavet.fr/assets/img/anais-robin-veterinaire.jpg",
+          "knowsAbout": ["Médecine générale vétérinaire"],
           "worksFor": { "@id": "https://sanceavet.fr/#clinic" }
         },
         {
@@ -347,6 +359,14 @@
                         <span class="view-more">Cliquez pour en savoir plus →</span>
                     </div>
                 </div>
+                <div class="team-card fade-in" onclick="openModal('anais')">
+                    <img src="assets/img/anais-robin-veterinaire.jpg" alt="Dr Anaïs Robin, vétérinaire en médecine générale à la clinique Sancéa Vet, Saint-Julien-les-Villas près de Troyes" loading="lazy" width="600" height="800">
+                    <div class="team-info">
+                        <h3>Dr Anaïs Robin</h3>
+                        <p>Médecine générale</p>
+                        <span class="view-more">Cliquez pour en savoir plus →</span>
+                    </div>
+                </div>
             </div>
 
             <!-- Auxiliaires spécialisées vétérinaires : présentation simple,
@@ -391,6 +411,7 @@
                     <li><a href="/equipe/maxime-bousses">Dr Maxime Bousses</a></li>
                     <li><a href="/equipe/lucie-lengelle">Dr Lucie Lengellé</a></li>
                     <li><a href="/equipe/alexis-racine">Dr Alexis Racine</a></li>
+                    <li><a href="/equipe/anais-robin">Dr Anaïs Robin</a></li>
                 </ul>
             </div>
         </div>
@@ -692,7 +713,7 @@
 
     <script src="assets/js/forms-status.js?v=20260825"></script>
     <script src="assets/js/contact.js?v=20260831"></script>
-    <script src="assets/js/main.js?v=20260825"></script>
+    <script src="assets/js/main.js?v=20261007"></script>
     <script src="assets/js/blog.js?v=20260825"></script>
    
     <div id="articleModal" class="modal-overlay" onclick="closeArticleModal(event)">
